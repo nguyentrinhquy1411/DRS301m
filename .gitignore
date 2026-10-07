@@ -1,0 +1,20 @@
+# Virtual Environment
+.venv/
+env/
+venv/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Dataset (FER-2013 hơn 35,000 ảnh không nên push lên Git)
+data/
+*.zip
+
+# OS & IDE
+.vscode/
+.idea/
+.DS_Store
+# Third-party tools & Large Model Pretrained Datasets
+MaskTheFace/
