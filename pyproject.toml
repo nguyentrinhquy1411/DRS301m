@@ -20,10 +20,10 @@ dependencies = [
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch-cu121" },
+    { index = "pytorch-cu121", marker = "sys_platform != 'darwin'" },
 ]
 torchvision = [
-    { index = "pytorch-cu121" },
+    { index = "pytorch-cu121", marker = "sys_platform != 'darwin'" },
 ]
 
 [[tool.uv.index]]
