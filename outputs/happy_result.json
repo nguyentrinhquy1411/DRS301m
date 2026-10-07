@@ -1,0 +1,117 @@
+{
+  "status": "ok",
+  "visualization_mode": "full",
+  "tta": true,
+  "prediction": "fear",
+  "class_index": 2,
+  "confidence": 0.4498,
+  "explained_class": "fear",
+  "explained_class_index": 2,
+  "explained_class_probability": 0.4498,
+  "target_layer": "layer4.1",
+  "alpha": 0.4,
+  "cam_min": 0.0,
+  "cam_max": 1.0,
+  "cam_raw_max": 0.516816,
+  "low_confidence": true,
+  "probabilities": {
+    "angry": 0.0218,
+    "disgust": 0.0222,
+    "fear": 0.4498,
+    "happy": 0.2486,
+    "neutral": 0.134,
+    "sad": 0.1067,
+    "surprise": 0.017
+  },
+  "face_box_xywh": [
+    297,
+    454,
+    176,
+    243
+  ],
+  "crop_xyxy": [
+    245,
+    436,
+    525,
+    715
+  ],
+  "warnings": [
+    "Low confidence (< 0.50); this does not by itself mean the prediction is wrong."
+  ],
+  "faces": [
+    {
+      "prediction": "fear",
+      "class_index": 2,
+      "confidence": 0.4498,
+      "explained_class": "fear",
+      "explained_class_index": 2,
+      "explained_class_probability": 0.4498,
+      "target_layer": "layer4.1",
+      "alpha": 0.4,
+      "cam_min": 0.0,
+      "cam_max": 1.0,
+      "cam_raw_max": 0.516816,
+      "low_confidence": true,
+      "probabilities": {
+        "angry": 0.0218,
+        "disgust": 0.0222,
+        "fear": 0.4498,
+        "happy": 0.2486,
+        "neutral": 0.134,
+        "sad": 0.1067,
+        "surprise": 0.017
+      },
+      "face_box_xywh": [
+        297,
+        454,
+        176,
+        243
+      ],
+      "crop_xyxy": [
+        245,
+        436,
+        525,
+        715
+      ],
+      "warnings": [
+        "Low confidence (< 0.50); this does not by itself mean the prediction is wrong."
+      ]
+    },
+    {
+      "prediction": "neutral",
+      "class_index": 4,
+      "confidence": 0.6977,
+      "explained_class": "neutral",
+      "explained_class_index": 4,
+      "explained_class_probability": 0.6977,
+      "target_layer": "layer4.1",
+      "alpha": 0.4,
+      "cam_min": 0.0,
+      "cam_max": 1.0,
+      "cam_raw_max": 0.852303,
+      "low_confidence": false,
+      "probabilities": {
+        "angry": 0.0082,
+        "disgust": 0.0254,
+        "fear": 0.0244,
+        "happy": 0.2072,
+        "neutral": 0.6977,
+        "sad": 0.0264,
+        "surprise": 0.0106
+      },
+      "face_box_xywh": [
+        493,
+        482,
+        152,
+        229
+      ],
+      "crop_xyxy": [
+        437,
+        465,
+        701,
+        728
+      ],
+      "warnings": []
+    }
+  ]
+}

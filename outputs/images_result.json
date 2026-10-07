@@ -1,0 +1,81 @@
+{
+  "status": "ok",
+  "visualization_mode": "crop",
+  "tta": true,
+  "prediction": "fear",
+  "class_index": 2,
+  "confidence": 0.4161,
+  "explained_class": "fear",
+  "explained_class_index": 2,
+  "explained_class_probability": 0.4161,
+  "target_layer": "layer4.1",
+  "alpha": 0.4,
+  "cam_min": 0.0,
+  "cam_max": 1.0,
+  "cam_raw_max": 0.453874,
+  "low_confidence": true,
+  "probabilities": {
+    "angry": 0.2502,
+    "disgust": 0.0102,
+    "fear": 0.4161,
+    "happy": 0.0285,
+    "neutral": 0.1751,
+    "sad": 0.0508,
+    "surprise": 0.0691
+  },
+  "face_box_xywh": [
+    7,
+    -25,
+    291,
+    397
+  ],
+  "crop_xyxy": [
+    -76,
+    -55,
+    381,
+    402
+  ],
+  "warnings": [
+    "Low confidence (< 0.50); this does not by itself mean the prediction is wrong."
+  ],
+  "faces": [
+    {
+      "prediction": "fear",
+      "class_index": 2,
+      "confidence": 0.4161,
+      "explained_class": "fear",
+      "explained_class_index": 2,
+      "explained_class_probability": 0.4161,
+      "target_layer": "layer4.1",
+      "alpha": 0.4,
+      "cam_min": 0.0,
+      "cam_max": 1.0,
+      "cam_raw_max": 0.453874,
+      "low_confidence": true,
+      "probabilities": {
+        "angry": 0.2502,
+        "disgust": 0.0102,
+        "fear": 0.4161,
+        "happy": 0.0285,
+        "neutral": 0.1751,
+        "sad": 0.0508,
+        "surprise": 0.0691
+      },
+      "face_box_xywh": [
+        7,
+        -25,
+        291,
+        397
+      ],
+      "crop_xyxy": [
+        -76,
+        -55,
+        381,
+        402
+      ],
+      "warnings": [
+        "Low confidence (< 0.50); this does not by itself mean the prediction is wrong."
+      ]
+    }
+  ]
+}
