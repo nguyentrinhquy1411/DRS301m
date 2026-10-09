@@ -18,7 +18,6 @@ import cv2
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn.functional as F
 from PIL import Image
 import streamlit as st
 import matplotlib.pyplot as plt
@@ -33,9 +32,9 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 ROOT_DIR = Path(__file__).resolve().parent
 sys.path.append(str(ROOT_DIR / "src"))
 
-from models import PretrainedFER, ImprovedCNN
-from gradcam import GradCAM, overlay_heatmap_on_image
+from gradcam import overlay_heatmap_on_image
 from face_detector import MultiFaceDetector
+from inference import FERPredictor, FaceTracker, get_device
 
 # ╔═══════════════════════════════════════════════════════════════════╗
 # ║  CONSTANTS & CONFIG                                              ║
@@ -94,9 +93,6 @@ CHECKPOINT_RAFDB = ROOT_DIR / "output" / "best_model_rafdb.pth"
 CHECKPOINT_FALLBACK = ROOT_DIR / "output" / "best_model.pth"
 REAL_MASKED_DIR = ROOT_DIR / "data" / "real_masked_faces"
 MULTI_SAMPLE_DIR = ROOT_DIR / "data" / "multi_face_samples"
-
-IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
-IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
 
 # ╔═══════════════════════════════════════════════════════════════════╗
 # ║  CUSTOM CSS — Premium Dark Theme                                 ║
@@ -181,33 +177,10 @@ st.markdown("""
 # ╔═══════════════════════════════════════════════════════════════════╗
 # ║  DEVICE & MODEL HELPERS                                         ║
 # ╚═══════════════════════════════════════════════════════════════════╝
-def get_device() -> torch.device:
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")
-
-
 @st.cache_resource
-def load_model(ckpt_path_str: str):
-    device = get_device()
-    model = PretrainedFER(backbone_name="mobilenet_v3_large", num_classes=7, pretrained=True).to(device)
-    val_f1, is_trained = 0.0, False
-    ckpt_path = Path(ckpt_path_str)
-    if ckpt_path.exists():
-        try:
-            ckpt = torch.load(ckpt_path, map_location=device)
-            if "model_state_dict" in ckpt:
-                model.load_state_dict(ckpt["model_state_dict"])
-                val_f1 = ckpt.get("best_val_f1", 0.0)
-                is_trained = True
-        except Exception as e:
-            print(f"Error loading {ckpt_path}: {e}")
-    model.eval()
-    target_layer = model.get_last_conv_layer()
-    grad_cam = GradCAM(model=model, target_layer=target_layer)
-    return model, grad_cam, device, is_trained, val_f1
+def load_predictor(ckpt_path_str: str) -> FERPredictor:
+    """Nạp checkpoint bất kỳ backbone (đọc từ metadata) + Grad-CAM."""
+    return FERPredictor(ckpt_path_str, get_device())
 
 
 @st.cache_resource
@@ -218,31 +191,33 @@ def get_detector():
 # ╔═══════════════════════════════════════════════════════════════════╗
 # ║  INFERENCE HELPERS                                               ║
 # ╚═══════════════════════════════════════════════════════════════════╝
-def preprocess_face(pil_crop: Image.Image, device: torch.device):
-    """Resize + ImageNet normalize → (rgb_np, tensor)."""
-    rgb = pil_crop.convert("RGB").resize((224, 224))
-    np_rgb = np.array(rgb, dtype=np.float32) / 255.0
-    tensor = torch.tensor(np_rgb).permute(2, 0, 1).unsqueeze(0).to(device)
-    tensor = (tensor - IMAGENET_MEAN.to(device)) / IMAGENET_STD.to(device)
-    return np.array(rgb, dtype=np.uint8), tensor
+def as_rgb_array(img) -> np.ndarray:
+    if isinstance(img, Image.Image):
+        return np.array(img.convert("RGB"))
+    return img
 
 
-def predict_with_gradcam(model, grad_cam, crop: Image.Image, device):
-    rgb_np, tensor = preprocess_face(crop, device)
-    heatmap, pred_idx, probs = grad_cam.generate_heatmap(tensor)
-    label = CLASSES[pred_idx]
-    conf = float(probs[pred_idx] * 100)
-    return label, conf, probs, heatmap, rgb_np
+def predict_with_gradcam(predictor: FERPredictor, crop):
+    """crop: ảnh mặt đã căn chỉnh (np RGB hoặc PIL). Trả về (label, conf%, probs, heatmap, ảnh RGB đã resize)."""
+    heatmap, pred_idx, probs, rgb_np = predictor.explain(as_rgb_array(crop))
+    return CLASSES[pred_idx], float(probs[pred_idx] * 100), probs, heatmap, rgb_np
 
 
-def predict_fast(model, crop: Image.Image, device):
-    """Fast inference — no Grad-CAM, pure speed."""
-    rgb_np, tensor = preprocess_face(crop, device)
-    with torch.no_grad():
-        logits = model(tensor)
-        probs = F.softmax(logits, dim=1).squeeze(0).cpu().numpy()
-        pred_idx = int(np.argmax(probs))
-    return CLASSES[pred_idx], float(probs[pred_idx] * 100), probs
+def predict_faces(predictor: FERPredictor, faces) -> np.ndarray:
+    """Dự đoán batch cho mọi khuôn mặt trong frame (TTA lật ngang). Trả về probs [N, 7]."""
+    return predictor.predict([f.crop_rgb for f in faces])
+
+
+def face_from_image(detector: MultiFaceDetector, img: Image.Image) -> np.ndarray:
+    """Ảnh upload ở tab XAI/Compare: nếu tìm được mặt thì dùng ảnh đã căn chỉnh, không thì dùng nguyên ảnh."""
+    rgb = as_rgb_array(img)
+    faces = detector.detect_faces(rgb, is_bgr=False)
+    return faces[0].crop_rgb if faces else rgb
+
+
+def label_conf(probs: np.ndarray) -> tuple[str, float]:
+    idx = int(np.argmax(probs))
+    return CLASSES[idx], float(probs[idx] * 100)
 
 
 def annotate_frame(frame_rgb, face_results):
@@ -308,7 +283,7 @@ def render_emotion_bar(probs, pred_label):
 # ╔═══════════════════════════════════════════════════════════════════╗
 # ║  TAB 1 — REAL-TIME VIDEO & WEBCAM                               ║
 # ╚═══════════════════════════════════════════════════════════════════╝
-def tab_realtime(detector, model, grad_cam, device, alpha):
+def tab_realtime(detector, predictor, alpha):
     st.markdown('<p class="hero-sub">🔴 Bật Webcam Mac nhận diện tức thì · 🎬 Tải video lên phân tích · 📸 Chụp ảnh khuôn mặt</p>', unsafe_allow_html=True)
 
     mode = st.segmented_control(
@@ -319,7 +294,7 @@ def tab_realtime(detector, model, grad_cam, device, alpha):
 
     # ── LIVE WEBCAM MAC MODE ──
     if mode == "🔴 Live Webcam Mac (Real-Time)":
-        _process_webcam_live(detector, model, grad_cam, device, alpha)
+        _process_webcam_live(detector, predictor, alpha)
 
     # ── VIDEO UPLOAD MODE ──
     elif mode == "🎬 Upload Video":
@@ -354,7 +329,7 @@ def tab_realtime(detector, model, grad_cam, device, alpha):
         video_path = tmp.name
 
         if st.button("▶️  Bắt Đầu Phân Tích", type="primary", use_container_width=True):
-            _process_video(video_path, detector, model, grad_cam, device, alpha, skip, save_vid)
+            _process_video(video_path, detector, predictor, skip, save_vid)
 
     # ── WEBCAM SNAPSHOT ──
     else:
@@ -367,10 +342,10 @@ def tab_realtime(detector, model, grad_cam, device, alpha):
 
         cam = st.camera_input("Bấm để chụp ảnh")
         if cam is not None:
-            _process_snapshot(cam, detector, model, grad_cam, device, alpha)
+            _process_snapshot(cam, detector, predictor, alpha)
 
 
-def _process_webcam_live(detector, model, grad_cam, device, alpha):
+def _process_webcam_live(detector, predictor, alpha):
     """Real-time live streaming directly from Mac's camera inside Streamlit."""
     st.markdown("""
     <div style="background: linear-gradient(135deg, rgba(102,126,234,0.12), rgba(118,75,162,0.12)); border: 1px solid rgba(102, 126, 234, 0.35); border-radius: 12px; padding: 14px 20px; margin-top: 10px; margin-bottom: 20px;">
@@ -416,6 +391,7 @@ def _process_webcam_live(detector, model, grad_cam, device, alpha):
     t_start = time.time()
     frame_count = 0
     fps = 0.0
+    tracker = FaceTracker()
 
     try:
         while run_cam:
@@ -432,17 +408,9 @@ def _process_webcam_live(detector, model, grad_cam, device, alpha):
                 dt = now - t_start
                 fps = frame_count / dt if dt > 0 else 0
 
-            orig_h, orig_w = frame.shape[:2]
-            det_w = 480
-            det_scale = det_w / float(orig_w)
-            det_h = int(orig_h * det_scale)
-            small = cv2.resize(frame, (det_w, det_h))
-
-            detected = detector.detect_faces(small, is_bgr=True)
+            # Detector tự thu nhỏ frame để detect nhanh, nhưng căn chỉnh mặt trên frame gốc
+            detected = detector.detect_faces(frame, is_bgr=True)
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-            scale_x = orig_w / float(det_w)
-            scale_y = orig_h / float(det_h)
 
             results = []
             primary_crop = None
@@ -451,39 +419,15 @@ def _process_webcam_live(detector, model, grad_cam, device, alpha):
             primary_label = ""
             primary_conf = 0.0
 
-            for idx, face in enumerate(detected):
-                sx, sy, sw, sh = face.bbox
-                fx = max(0, int(sx * scale_x))
-                fy = max(0, int(sy * scale_y))
-                fw = min(orig_w - fx, int(sw * scale_x))
-                fh = min(orig_h - fy, int(sh * scale_y))
-
-                crop_bgr = frame[fy:fy+fh, fx:fx+fw]
-                if crop_bgr.shape[0] < 10 or crop_bgr.shape[1] < 10:
-                    continue
-
-                pil_crop = Image.fromarray(cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB))
-
-                if idx == 0 and enable_xai:
-                    label, conf, probs, heatmap, rgb_np = predict_with_gradcam(model, grad_cam, pil_crop, device)
-                    primary_crop = rgb_np
-                    primary_heatmap = heatmap
-                    primary_probs = probs
-                    primary_label = label
-                    primary_conf = conf
-                else:
-                    label, conf, probs = predict_fast(model, pil_crop, device)
-                    if idx == 0:
-                        primary_probs = probs
-                        primary_label = label
-                        primary_conf = conf
-
-                results.append({
-                    "face_id": idx + 1,
-                    "label": label,
-                    "conf": conf,
-                    "bbox": (fx, fy, fw, fh)
-                })
+            if detected:
+                tracked = tracker.update([f.bbox for f in detected], predict_faces(predictor, detected))
+                for idx, (face, (tid, probs)) in enumerate(zip(detected, tracked)):
+                    label, conf = label_conf(probs)
+                    if idx == 0:   # mặt lớn nhất
+                        primary_probs, primary_label, primary_conf = probs, label, conf
+                        if enable_xai:
+                            primary_heatmap, _, _, primary_crop = predictor.explain(face.crop_rgb)
+                    results.append({"face_id": tid, "label": label, "conf": conf, "bbox": face.bbox})
 
             annotated = annotate_frame(rgb_frame, results)
             frame_ph.image(annotated, use_container_width=True)
@@ -501,7 +445,7 @@ def _process_webcam_live(detector, model, grad_cam, device, alpha):
             if enable_xai and primary_heatmap is not None and primary_crop is not None:
                 with xai_ph.container():
                     st.caption("🔬 **Bản đồ nhiệt Grad-CAM XAI**:")
-                    ov = overlay_heatmap_on_image(primary_crop, primary_heatmap, alpha=alpha)
+                    _, ov = overlay_heatmap_on_image(primary_crop, primary_heatmap, alpha=alpha)
                     st.image(ov, width=170)
                     insight = EXPLANATION_INSIGHTS.get(primary_label, "")
                     if insight:
@@ -511,7 +455,7 @@ def _process_webcam_live(detector, model, grad_cam, device, alpha):
         cap.release()
 
 
-def _process_video(path, detector, model, grad_cam, device, alpha, skip, save_vid):
+def _process_video(path, detector, predictor, skip, save_vid):
     """Process uploaded video frame-by-frame."""
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
@@ -560,6 +504,7 @@ def _process_video(path, detector, model, grad_cam, device, alpha, skip, save_vi
     t0 = time.time()
     emotion_log = {e: 0 for e in CLASSES}
     timeline = []
+    tracker = FaceTracker()
 
     try:
         while cap.isOpened():
@@ -575,11 +520,13 @@ def _process_video(path, detector, model, grad_cam, device, alpha, skip, save_vi
             faces = detector.detect_faces(rgb, is_bgr=False)
             results = []
 
-            for face in faces:
-                label, conf, probs = predict_fast(model, face.crop_pil, device)
-                results.append({"face_id": face.face_id, "label": label, "conf": conf, "bbox": face.bbox})
-                emotion_log[label] += 1
-                timeline.append({"time": round(idx / fps, 2), "face": face.face_id, "emotion": label, "conf": conf})
+            if faces:
+                tracked = tracker.update([f.bbox for f in faces], predict_faces(predictor, faces))
+                for face, (tid, probs) in zip(faces, tracked):
+                    label, conf = label_conf(probs)
+                    results.append({"face_id": tid, "label": label, "conf": conf, "bbox": face.bbox})
+                    emotion_log[label] += 1
+                    timeline.append({"time": round(idx / fps, 2), "face": tid, "emotion": label, "conf": conf})
 
             annotated = annotate_frame(rgb, results)
             if writer:
@@ -659,10 +606,10 @@ def _process_video(path, detector, model, grad_cam, device, alpha, skip, save_vi
             )
 
 
-def _process_snapshot(cam_data, detector, model, grad_cam, device, alpha):
+def _process_snapshot(cam_data, detector, predictor, alpha):
     """Process a single webcam snapshot with full Grad-CAM."""
     raw = Image.open(cam_data)
-    frame = np.array(raw)
+    frame = np.array(raw.convert("RGB"))
     faces = detector.detect_faces(frame, is_bgr=False)
 
     if not faces:
@@ -675,7 +622,7 @@ def _process_snapshot(cam_data, detector, model, grad_cam, device, alpha):
     # Predict all faces
     results = []
     for face in faces:
-        label, conf, probs, hm, rgb_np = predict_with_gradcam(model, grad_cam, face.crop_pil, device)
+        label, conf, probs, hm, rgb_np = predict_with_gradcam(predictor, face.crop_rgb)
         results.append({
             "face_id": face.face_id, "label": label, "conf": conf,
             "probs": probs, "heatmap": hm, "crop_rgb": rgb_np, "bbox": face.bbox,
@@ -729,7 +676,7 @@ def _process_snapshot(cam_data, detector, model, grad_cam, device, alpha):
 # ╔═══════════════════════════════════════════════════════════════════╗
 # ║  TAB 2 — CROWD / GROUP PHOTO                                    ║
 # ╚═══════════════════════════════════════════════════════════════════╝
-def tab_crowd(detector, model, grad_cam, device):
+def tab_crowd(detector, predictor):
     st.markdown("#### 👥 Phân Tích Cảm Xúc Nhóm / Đám Đông")
     upload = st.file_uploader("Tải ảnh chụp nhóm:", type=["jpg", "jpeg", "png"], key="group_up")
 
@@ -756,8 +703,8 @@ def tab_crowd(detector, model, grad_cam, device):
     annotated = frame.copy()
     counts = {}
 
-    for f in faces:
-        label, conf, _, _, _ = predict_with_gradcam(model, grad_cam, f.crop_pil, device)
+    for f, probs in zip(faces, predict_faces(predictor, faces)):
+        label, conf = label_conf(probs)
         counts[label] = counts.get(label, 0) + 1
         x, y, w, h = f.bbox
         c = EMOTION_COLORS.get(label, (0, 255, 0))
@@ -777,7 +724,7 @@ def tab_crowd(detector, model, grad_cam, device):
 # ╔═══════════════════════════════════════════════════════════════════╗
 # ║  TAB 3 — GRAD-CAM XAI INSPECTOR                                 ║
 # ╚═══════════════════════════════════════════════════════════════════╝
-def tab_xai(model, grad_cam, device, alpha):
+def tab_xai(detector, predictor, alpha):
     st.markdown("#### 🔍 Kính Lúp XAI — Soi Bản Đồ Nhiệt Grad-CAM")
     source = st.radio("Nguồn ảnh:", ["Upload ảnh khuôn mặt", "Ảnh người đeo khẩu trang (RMFD)"], horizontal=True)
 
@@ -797,7 +744,7 @@ def tab_xai(model, grad_cam, device, alpha):
     if face_img is None:
         return
 
-    label, conf, probs, hm, rgb_np = predict_with_gradcam(model, grad_cam, face_img, device)
+    label, conf, probs, hm, rgb_np = predict_with_gradcam(predictor, face_from_image(detector, face_img))
     _, overlay = overlay_heatmap_on_image(rgb_np, hm, alpha=alpha)
     hm_colored, _ = overlay_heatmap_on_image(rgb_np, hm, alpha=1.0)
 
@@ -822,7 +769,7 @@ def tab_xai(model, grad_cam, device, alpha):
 # ╔═══════════════════════════════════════════════════════════════════╗
 # ║  TAB 4 — HEAD-TO-HEAD COMPARISON                                ║
 # ╚═══════════════════════════════════════════════════════════════════╝
-def tab_compare(device, alpha):
+def tab_compare(detector, alpha):
     st.markdown("#### ⚔️ So Sánh: Baseline vs Mask-Aware")
     st.caption("Đặt hai mô hình lên bàn cân: khi khuôn mặt bị che khẩu trang, mô hình Mask-Aware chuyển dịch vùng chú ý lên mắt.")
 
@@ -831,9 +778,9 @@ def tab_compare(device, alpha):
         st.warning("Cần cả 2 checkpoint `best_model_rafdb.pth` và `best_model_mask_aware.pth`.")
         return
 
-    base_model, base_cam, _, _, _ = load_model(str(CHECKPOINT_RAFDB))
+    base_pred = load_predictor(str(CHECKPOINT_RAFDB))
     mask_path = str(CHECKPOINT_MASK_AWARE if CHECKPOINT_MASK_AWARE.exists() else CHECKPOINT_FALLBACK)
-    mask_model, mask_cam, _, _, _ = load_model(mask_path)
+    mask_pred = load_predictor(mask_path)
 
     src = st.radio("Ảnh thử nghiệm:", ["Mẫu có sẵn", "Upload"], horizontal=True, key="cmp_r")
     cmp_img = None
@@ -850,8 +797,9 @@ def tab_compare(device, alpha):
     if cmp_img is None:
         return
 
-    bl, bc, bp, bh, br = predict_with_gradcam(base_model, base_cam, cmp_img, device)
-    ml, mc, mp, mh, mr = predict_with_gradcam(mask_model, mask_cam, cmp_img, device)
+    face_rgb = face_from_image(detector, cmp_img)
+    bl, bc, bp, bh, br = predict_with_gradcam(base_pred, face_rgb)
+    ml, mc, mp, mh, mr = predict_with_gradcam(mask_pred, face_rgb)
     _, b_ov = overlay_heatmap_on_image(br, bh, alpha=alpha)
     _, m_ov = overlay_heatmap_on_image(mr, mh, alpha=alpha)
 
@@ -893,12 +841,13 @@ def main():
         st.caption(f"Device: `{device.type.upper()}`{'  ·  GPU: ' + torch.cuda.get_device_name(0) if device.type == 'cuda' else ''}")
 
         sel_name = st.selectbox("Model:", list(models.keys()))
-        model, grad_cam, _, trained, f1 = load_model(models[sel_name])
-
-        if trained:
-            st.success(f"✅ Loaded · F1: {f1:.4f}")
-        else:
-            st.info("⚡ Ready")
+        if not Path(models[sel_name]).exists():
+            st.error("Chưa có checkpoint nào trong `output/`. Hãy chạy `src/train.py` trước.")
+            st.stop()
+        predictor = load_predictor(models[sel_name])
+        st.success(f"✅ Loaded · Val F1: {predictor.val_f1:.4f}")
+        if not predictor.ckpt.get("split", {}).get("grouped", False):
+            st.caption("⚠️ Checkpoint cũ (val bị rò rỉ) — Val F1 bị thổi phồng, hãy train lại.")
 
         st.markdown("---")
         alpha = st.slider("Grad-CAM α", 0.1, 1.0, 0.5, 0.05)
@@ -906,8 +855,8 @@ def main():
         st.markdown("---")
         st.markdown(
             "<div style='color:#555; font-size:0.75rem;'>"
-            "MobileNetV3-Large · RAF-DB<br/>"
-            "MediaPipe + Haar Cascade<br/>"
+            f"{predictor.model_name} · RAF-DB<br/>"
+            f"Detector: {detector.backend.upper()} + face alignment<br/>"
             "Grad-CAM XAI"
             "</div>",
             unsafe_allow_html=True,
@@ -915,7 +864,7 @@ def main():
 
     # ── Header ──
     st.markdown('<h1 class="hero-title">🎭 Real-Time Facial Emotion Recognition</h1>', unsafe_allow_html=True)
-    st.markdown('<p class="hero-sub">MobileNetV3-Large · Mask-Aware · Explainable AI (Grad-CAM)</p>', unsafe_allow_html=True)
+    st.markdown(f'<p class="hero-sub">{predictor.model_name} · Mask-Aware · Explainable AI (Grad-CAM)</p>', unsafe_allow_html=True)
 
     # ── Tabs ──
     t1, t2, t3, t4 = st.tabs([
@@ -926,13 +875,13 @@ def main():
     ])
 
     with t1:
-        tab_realtime(detector, model, grad_cam, device, alpha)
+        tab_realtime(detector, predictor, alpha)
     with t2:
-        tab_crowd(detector, model, grad_cam, device)
+        tab_crowd(detector, predictor)
     with t3:
-        tab_xai(model, grad_cam, device, alpha)
+        tab_xai(detector, predictor, alpha)
     with t4:
-        tab_compare(device, alpha)
+        tab_compare(detector, alpha)
 
 
 if __name__ == "__main__":

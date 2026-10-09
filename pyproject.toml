@@ -16,6 +16,7 @@ dependencies = [
     "tqdm>=4.67.0",
     "mediapipe>=1.1.0",
     "hsemotion>=0.3.0",
+    "timm>=1.0.0",
 ]
 
 [tool.uv.sources]

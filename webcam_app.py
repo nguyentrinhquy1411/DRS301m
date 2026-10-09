@@ -22,15 +22,12 @@ Tính năng:
 """
 
 import sys
-import os
 import time
 from datetime import datetime
 from pathlib import Path
 import cv2
 import numpy as np
 import torch
-import torch.nn.functional as F
-from PIL import Image
 
 # Đảm bảo UTF-8
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -42,9 +39,8 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 ROOT_DIR = Path(__file__).resolve().parent
 sys.path.append(str(ROOT_DIR / "src"))
 
-from models import PretrainedFER
 from face_detector import MultiFaceDetector
-from gradcam import GradCAM
+from inference import FERPredictor, FaceTracker
 
 # ── Hằng số & Bảng màu ──
 CLASSES = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
@@ -69,10 +65,6 @@ EXPLANATIONS = {
     "sad": "Chu y vao dau long may xe & mi mat ru xuong",
     "neutral": "Nhiet phan bo deu - co tha long tu nhien",
 }
-
-IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
-IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
-
 
 def get_optimal_device() -> torch.device:
     if torch.backends.mps.is_available():
@@ -106,8 +98,7 @@ class WebcamFERApp:
             }
         ]
 
-        self.models = []
-        self.gradcams = []
+        self.predictors = []
         self._preload_all_models()
 
         self.active_idx = 0
@@ -116,6 +107,7 @@ class WebcamFERApp:
         # Trạng thái điều khiển & debounce
         self.enable_gradcam = True
         self.smoothed_probs = np.zeros(7, dtype=np.float32)
+        self.tracker = FaceTracker()
         self.last_key_time = 0.0
 
         # Thông báo flash trên màn hình
@@ -131,44 +123,31 @@ class WebcamFERApp:
 
     def _preload_all_models(self):
         """Preload cả 2 mô hình vào VRAM/RAM để chuyển đổi tức thì 0ms."""
+        available = []
         for cfg in self.model_configs:
-            name = cfg["name"]
             ckpt_path = cfg["path"]
-            print(f"📦 Đang nạp sẵn: [{name}]...")
-
-            m = PretrainedFER("mobilenet_v3_large", num_classes=7, pretrained=False).to(self.device)
-            if ckpt_path.exists():
-                ckpt = torch.load(ckpt_path, map_location=self.device)
-                state_dict = ckpt.get("model_state_dict", ckpt)
-                m.load_state_dict(state_dict)
-                f1_val = ckpt.get("best_val_f1", 0.0)
-                print(f"   ✅ Nạp thành công {ckpt_path.name} (Val F1: {f1_val:.4f})")
-            else:
-                print(f"   ⚠️ Không tìm thấy {ckpt_path.name}, dùng fallback")
-
-            m.eval()
-            gc = GradCAM(m, m.get_last_conv_layer())
-            self.models.append(m)
-            self.gradcams.append(gc)
-
-        print("⚡ CẢ 2 MÔ HÌNH ĐÃ SẴN SÀNG TRONG BỘ NHỚ! Đổi mô hình tức thì không giật lag.\n")
+            if not ckpt_path.exists():
+                print(f"   ⚠️ Không tìm thấy {ckpt_path.name}, bỏ qua [{cfg['name']}]")
+                continue
+            print(f"📦 Đang nạp sẵn: [{cfg['name']}]...")
+            pred = FERPredictor(ckpt_path, self.device)
+            print(f"   ✅ {ckpt_path.name}: {pred.model_name} (Val F1: {pred.val_f1:.4f})")
+            self.predictors.append(pred)
+            available.append(cfg)
+        if not available:
+            raise SystemExit("❌ Không có checkpoint nào trong output/. Hãy chạy src/train.py trước.")
+        self.model_configs = available
+        print(f"⚡ {len(available)} MÔ HÌNH ĐÃ SẴN SÀNG TRONG BỘ NHỚ!\n")
 
     def switch_model(self, target_idx: int):
         if target_idx != self.active_idx:
             self.active_idx = target_idx % len(self.model_configs)
+            self.tracker.reset()
             cfg = self.model_configs[self.active_idx]
             self.flash_timer = 35
             self.flash_msg = f"DA DOI SANG: {cfg['name'].upper()}"
             self.flash_color = cfg["color_bgr"]
             print(f"🔄 ĐÃ CHUYỂN SANG MÔ HÌNH: [{cfg['name']}]")
-
-    def preprocess_tensor(self, crop_bgr: np.ndarray) -> tuple[torch.Tensor, np.ndarray]:
-        rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
-        resized_rgb = cv2.resize(rgb, (224, 224))
-        np_norm = resized_rgb.astype(np.float32) / 255.0
-        tensor = torch.from_numpy(np_norm).permute(2, 0, 1).unsqueeze(0).to(self.device)
-        tensor = (tensor - IMAGENET_MEAN.to(self.device)) / IMAGENET_STD.to(self.device)
-        return tensor, resized_rgb
 
     def run(self):
         cap = cv2.VideoCapture(self.camera_id)
@@ -222,77 +201,42 @@ class WebcamFERApp:
                         fps_tracker.pop(0)
                 current_fps = sum(fps_tracker) / max(1, len(fps_tracker))
 
-                # Thu nhỏ ảnh để detect khuôn mặt siêu tốc (~8-12ms)
-                det_w = 480
-                det_scale = det_w / float(orig_w)
-                det_h = int(orig_h * det_scale)
-                small_frame = cv2.resize(frame, (det_w, det_h))
-
-                detected_faces = self.detector.detect_faces(small_frame, is_bgr=True)
+                # Detector tự thu nhỏ frame để detect nhanh, căn chỉnh mặt trên frame gốc
+                detected_faces = self.detector.detect_faces(frame, is_bgr=True)
 
                 display_feed = cv2.resize(frame, (self.feed_w, self.feed_h))
-                scale_x = self.feed_w / float(det_w)
-                scale_y = self.feed_h / float(det_h)
+                scale_x = self.feed_w / float(orig_w)
+                scale_y = self.feed_h / float(orig_h)
 
                 # Mô hình đang chọn
-                active_model = self.models[self.active_idx]
-                active_gradcam = self.gradcams[self.active_idx]
+                predictor = self.predictors[self.active_idx]
 
                 faces_info = []
+                if detected_faces:
+                    probs_all = predictor.predict([f.crop_rgb for f in detected_faces])
+                    tracked = self.tracker.update([f.bbox for f in detected_faces], probs_all)
+                else:
+                    tracked = []
 
-                for idx, face in enumerate(detected_faces):
+                for idx, (face, (tid, probs)) in enumerate(zip(detected_faces, tracked)):
                     sx, sy, sw, sh = face.bbox
-                    fx = int(sx * scale_x)
-                    fy = int(sy * scale_y)
-                    fw = int(sw * scale_x)
-                    fh = int(sh * scale_y)
+                    fx, fy = int(sx * scale_x), int(sy * scale_y)
+                    fw, fh = int(sw * scale_x), int(sh * scale_y)
 
-                    fx = max(0, min(self.feed_w - 1, fx))
-                    fy = max(0, min(self.feed_h - 1, fy))
-                    fw = max(10, min(self.feed_w - fx, fw))
-                    fh = max(10, min(self.feed_h - fy, fh))
+                    pred_idx = int(np.argmax(probs))
+                    label = CLASSES[pred_idx]
+                    conf = float(probs[pred_idx] * 100)
 
-                    face_crop_bgr = display_feed[fy:fy + fh, fx:fx + fw]
-                    if face_crop_bgr.shape[0] < 10 or face_crop_bgr.shape[1] < 10:
-                        continue
-
-                    tensor, rgb_224 = self.preprocess_tensor(face_crop_bgr)
-
-                    if idx == 0 and self.enable_gradcam:
-                        try:
-                            heatmap, pred_idx, probs = active_gradcam.generate_heatmap(tensor)
-                            label = CLASSES[pred_idx]
-                            conf = float(probs[pred_idx] * 100)
-
+                    if idx == 0:   # mặt lớn nhất -> hiển thị ở sidebar
+                        face_bgr = cv2.cvtColor(face.crop_rgb, cv2.COLOR_RGB2BGR)
+                        primary_face_crop = cv2.resize(face_bgr, (120, 120))
+                        primary_label, primary_conf = label, conf
+                        self.smoothed_probs = probs
+                        if self.enable_gradcam:
+                            heatmap, _, _, rgb_in = predictor.explain(face.crop_rgb)
                             heatmap_bgr = cv2.applyColorMap(np.uint8(255 * heatmap), cv2.COLORMAP_JET)
-                            bgr_224 = cv2.cvtColor(rgb_224, cv2.COLOR_RGB2BGR)
-                            overlay = cv2.addWeighted(bgr_224, 0.6, heatmap_bgr, 0.4, 0)
-
-                            primary_gradcam_overlay = overlay
-                            primary_face_crop = cv2.resize(face_crop_bgr, (120, 120))
-                            primary_label = label
-                            primary_conf = conf
-                            self.smoothed_probs = 0.65 * self.smoothed_probs + 0.35 * probs
-                        except Exception:
-                            with torch.no_grad():
-                                logits = active_model(tensor)
-                                probs = F.softmax(logits, dim=1).squeeze(0).cpu().numpy()
-                                pred_idx = int(np.argmax(probs))
-                                label = CLASSES[pred_idx]
-                                conf = float(probs[pred_idx] * 100)
-                    else:
-                        with torch.no_grad():
-                            logits = active_model(tensor)
-                            probs = F.softmax(logits, dim=1).squeeze(0).cpu().numpy()
-                            pred_idx = int(np.argmax(probs))
-                            label = CLASSES[pred_idx]
-                            conf = float(probs[pred_idx] * 100)
-
-                        if idx == 0:
-                            primary_face_crop = cv2.resize(face_crop_bgr, (120, 120))
-                            primary_label = label
-                            primary_conf = conf
-                            self.smoothed_probs = 0.65 * self.smoothed_probs + 0.35 * probs
+                            bgr_in = cv2.cvtColor(rgb_in, cv2.COLOR_RGB2BGR)
+                            primary_gradcam_overlay = cv2.addWeighted(bgr_in, 0.6, heatmap_bgr, 0.4, 0)
 
                     faces_info.append({
                         "bbox": (fx, fy, fw, fh),
@@ -356,7 +300,7 @@ class WebcamFERApp:
                 elif key == ord('1') and (press_now - self.last_key_time > 0.35):
                     self.last_key_time = press_now
                     self.switch_model(0)
-                elif key == ord('2') and (press_now - self.last_key_time > 0.35):
+                elif key == ord('2') and len(self.model_configs) > 1 and (press_now - self.last_key_time > 0.35):
                     self.last_key_time = press_now
                     self.switch_model(1)
                 elif key in (ord('g'), ord('G')) and (press_now - self.last_key_time > 0.35):
