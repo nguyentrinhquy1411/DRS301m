@@ -10,7 +10,8 @@ Mục đích:
    - Linear warmup + Cosine theo từng bước, AdamW, gradient clipping.
    - Loss: Logit-Adjusted CE (mặc định) / Weighted CE / CE + Label Smoothing.
    - Mixup / CutMix, RandomErasing, LowerFaceOcclusion.
-   - EMA trọng số, Mixed Precision (AMP) trên GPU.
+   - EMA trọng số, Mixed Precision (AMP) khi train trên GPU (đánh giá luôn fp32).
+   - Hiệu chỉnh prior-bias trên VAL sau khi train (xem calibrate.py).
    - (Tuỳ chọn) Flip-Consistency loss kiểu EAC chống nhãn nhiễu.
    - (Tuỳ chọn) Knowledge Distillation từ một checkpoint teacher lớn hơn.
 4. Đánh giá benchmark 3 chiều (gốc / khẩu trang / tổng hợp), có và không có TTA.
@@ -53,7 +54,8 @@ from dataset import (
     compute_class_prior,
 )
 from models import build_model, load_checkpoint_model, get_input_size, PRETRAINED_BACKBONES
-from inference import predict_loader
+from inference import predict_loader, get_logit_bias
+from calibrate import calibrate_checkpoint
 
 
 # =====================================================================
@@ -206,9 +208,9 @@ def train_one_epoch(model, loader, criterion, optimizer, scheduler, device, args
     return running_loss / max(1, n_seen), epoch_f1
 
 
-def evaluate(model, loader, device, tta=False, amp=False):
-    """Trả về (val loss CE thường, macro F1, accuracy)."""
-    logits, labels = predict_loader(model, loader, device, tta=tta, amp=amp)
+def evaluate(model, loader, device, tta=False, bias=None):
+    """Trả về (loss CE thường, macro F1, accuracy). Luôn fp32."""
+    logits, labels = predict_loader(model, loader, device, tta=tta, bias=bias)
     loss = F.cross_entropy(logits, labels).item()
     preds = logits.argmax(dim=1)
     f1 = f1_score(labels.numpy(), preds.numpy(), average="macro", zero_division=0)
@@ -293,6 +295,7 @@ def run_training(args):
         grayscale=grayscale,
         occlusion_p=args.occlusion_p,
         erasing_p=args.erasing_p,
+        cache_images=args.cache_images,
     )
     print(f"• Số mẫu: Train={len(train_loader.dataset):,} | Val={len(val_loader.dataset):,} (chia theo nhóm ảnh gốc)")
 
@@ -344,7 +347,7 @@ def run_training(args):
     def eval_and_save(epoch_tag: str, train_loss, train_f1):
         nonlocal best_val_f1
         eval_model = ema.module if ema is not None else model
-        val_loss, val_f1, val_acc = evaluate(eval_model, val_loader, device, amp=args.amp)
+        val_loss, val_f1, val_acc = evaluate(eval_model, val_loader, device)
         history["train_loss"].append(train_loss)
         history["val_loss"].append(val_loss)
         history["train_f1"].append(train_f1)
@@ -417,7 +420,10 @@ def run_training(args):
     # =================================================================
     # ĐÁNH GIÁ BENCHMARK VỚI CHECKPOINT TỐT NHẤT
     # =================================================================
-    best_model, _ = load_checkpoint_model(checkpoint_path, device)
+    if args.calibrate:
+        calibrate_checkpoint(checkpoint_path, device=device, batch_size=args.batch_size, num_workers=args.num_workers)
+    best_model, best_ckpt = load_checkpoint_model(checkpoint_path, device)
+    bias = get_logit_bias(best_ckpt)
     loaders = get_benchmark_test_loaders(image_size=img_size, batch_size=args.batch_size, grayscale=grayscale,
                                          num_workers=args.num_workers)[:3]
     names = ["Mặt gốc (Unmasked)", "Có khẩu trang (Masked)", "Tổng hợp (Combined)"]
@@ -425,15 +431,16 @@ def run_training(args):
     print("\n" + "=" * 70)
     print("🧪 BENCHMARK TEST (checkpoint tốt nhất theo Val F1)")
     print("=" * 70)
-    print(f"| {'Tập kiểm thử':<24} | Acc      | Macro F1 | Acc+TTA  | F1+TTA   | Số ảnh |")
-    print(f"|{'-'*26}|----------|----------|----------|----------|--------|")
+    print(f"| {'Tập kiểm thử':<24} | Acc thô  | F1 thô   | Acc TTA+bias | F1 TTA+bias | Số ảnh |")
+    print(f"|{'-'*26}|----------|----------|--------------|-------------|--------|")
     for name, loader in zip(names, loaders):
         if len(loader.dataset) == 0:
             continue
-        _, f1, acc = evaluate(best_model, loader, device, tta=False, amp=args.amp)
-        _, f1_t, acc_t = evaluate(best_model, loader, device, tta=True, amp=args.amp)
-        results[name] = {"acc": acc, "macro_f1": f1, "acc_tta": acc_t, "macro_f1_tta": f1_t, "n": len(loader.dataset)}
-        print(f"| {name:<24} | {acc*100:6.2f}% | {f1:.4f}   | {acc_t*100:6.2f}% | {f1_t:.4f}   | {len(loader.dataset):>6,} |")
+        _, f1, acc = evaluate(best_model, loader, device, tta=False)
+        _, f1_t, acc_t = evaluate(best_model, loader, device, tta=True, bias=bias)
+        results[name] = {"acc": acc, "macro_f1": f1, "acc_tta_bias": acc_t, "macro_f1_tta_bias": f1_t,
+                         "n": len(loader.dataset)}
+        print(f"| {name:<24} | {acc*100:6.2f}% | {f1:.4f}   |    {acc_t*100:6.2f}%   |   {f1_t:.4f}    | {len(loader.dataset):>6,} |")
     print("=" * 70)
 
     metrics_path = checkpoint_path.with_name(checkpoint_path.stem + "_metrics.json")
@@ -467,14 +474,18 @@ def build_parser():
     p.add_argument("--weight-decay", type=float, default=0.05)
     p.add_argument("--clip-grad", type=float, default=5.0)
     p.add_argument("--ema-decay", type=float, default=0.998, help="0 để tắt EMA")
-    p.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True, help="Mixed precision trên GPU")
+    p.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True, help="Mixed precision khi train trên GPU")
+    p.add_argument("--cache-images", action=argparse.BooleanOptionalAction, default=True,
+                   help="Giải mã toàn bộ ảnh train/val vào RAM một lần (nhanh hơn nhiều khi num_workers=0)")
+    p.add_argument("--calibrate", action=argparse.BooleanOptionalAction, default=True,
+                   help="Hiệu chỉnh prior-bias trên VAL sau khi train (xem calibrate.py)")
 
     p.add_argument("--loss", type=str, default="logit_adjust", choices=["ce", "weighted_ce", "logit_adjust"])
     p.add_argument("--la-tau", type=float, default=1.0, help="Hệ số tau của Logit Adjustment")
     p.add_argument("--label-smoothing", type=float, default=0.1)
     p.add_argument("--mixup-alpha", type=float, default=0.2)
     p.add_argument("--cutmix-alpha", type=float, default=1.0)
-    p.add_argument("--mix-prob", type=float, default=0.5, help="Xác suất áp dụng Mixup/CutMix cho mỗi batch")
+    p.add_argument("--mix-prob", type=float, default=0.3, help="Xác suất áp dụng Mixup/CutMix cho mỗi batch")
     p.add_argument("--occlusion-p", type=float, default=None,
                    help="Xác suất che nửa dưới mặt (mặc định 0 với original, 0.3 với combined/masked)")
     p.add_argument("--erasing-p", type=float, default=0.25, help="Xác suất RandomErasing")

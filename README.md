@@ -88,6 +88,9 @@ python src/train.py --model hsemotion_b0 --data-mode original --epochs 30
 python src/train.py --model hsemotion_b0 --data-mode combined --epochs 20 \
     --init-checkpoint output/best_model_rafdb.pth
 
+# (train.py already calibrates the prior bias on VAL at the end; for older checkpoints run:)
+python src/calibrate.py --checkpoint output/best_model_mask_aware.pth
+
 # 3. Evaluate (writes confusion matrices + output/<ckpt>[_tta]_eval.json)
 python src/evaluate.py --checkpoint output/best_model_rafdb.pth --tta
 python src/evaluate.py --checkpoint output/best_model_mask_aware.pth --tta
@@ -95,7 +98,14 @@ python src/evaluate.py --checkpoint output/best_model_mask_aware.pth --tta
 
 Useful options: `--model hsemotion_b2` (larger, 260px), `--flip-consistency 1.0` (EAC-style
 noisy-label robustness, ~1.5× slower), `--teacher-checkpoint <ckpt>` (knowledge distillation into a
-smaller student such as `mobilenet_v3_large`), `--loss weighted_ce` (old behaviour), `--no-amp`.
+smaller student such as `mobilenet_v3_large`), `--loss weighted_ce` (old behaviour), `--no-amp`, `--no-cache-images`.
+Evaluation always runs in fp32 (fp16 autocast was measured to cost ~2 accuracy points).
+
+**Prior-bias calibration.** The logit-adjusted loss makes the model predict as if the 7 classes were
+balanced, but RAF-DB train *and* test are dominated by happy/neutral, so the raw model over-predicts
+fear/disgust (high recall, low precision). `src/calibrate.py` picks `t` on the **validation** split so that
+`argmax(logits + t·log(prior))` maximises macro F1, and stores the bias in the checkpoint; `evaluate.py`
+and both apps apply it automatically (`--no-bias` shows raw logits).
 The validation split is fixed per `--split-seed` and stored in `data/splits/`; keep it unchanged
 across steps 1 and 2.
 
@@ -103,17 +113,20 @@ across steps 1 and 2.
 
 ## 📊 Benchmark Results
 
-> ⚠️ The current checkpoints in `output/` were trained with the **old pipeline**, whose random
-> train/val split put an image and its masked copy on different sides (validation leakage, val F1 0.826
-> vs. test F1 0.718). The numbers below are **test-set** results of those checkpoints, taken from
-> `output/confusion_matrix_best_model_mask_aware_*.png`. Re-train with the new pipeline and update
-> this table from the `*_eval.json` files.
+All numbers are on the official RAF-DB test split, fp32. The validation split is grouped by source
+image (no leakage); `t` is always chosen on validation, never on test.
 
-| Model | Evaluation Set | Accuracy | Macro F1 |
+| Model | Test set | Raw logits | TTA + prior bias |
 | :--- | :--- | :---: | :---: |
-| Mask-Aware MobileNetV3 (old pipeline) | Unmasked (RAF-DB Test) | 79.86% | 0.7179 |
-| Mask-Aware MobileNetV3 (old pipeline) | Masked (synthetic) | 73.27% | 0.6281 |
-| Mask-Aware HSEmotion-B0 (new pipeline) | Unmasked / Masked | _to be trained_ | |
+| HSEmotion-B0, RAF-DB only (`best_model_rafdb.pth`, t=0.70) | Unmasked (3,068) | 84.22% / F1 0.764 | **89.15% / F1 0.833** |
+| HSEmotion-B0, RAF-DB only | Masked (synthetic, 1,975) | 47.90% / F1 0.451 ¹ | — |
+| HSEmotion-B0 Mask-Aware (`best_model_mask_aware.pth`) | Unmasked | 84.06% / F1 0.761 ² | _run calibrate.py_ |
+| HSEmotion-B0 Mask-Aware | Masked (synthetic) | 73.22% / F1 0.647 ² | _run calibrate.py_ |
+| HSEmotion-B0 Mask-Aware | Combined (5,043) | 79.81% / F1 0.717 ² | _run calibrate.py_ |
+| MobileNetV3 Mask-Aware (old pipeline, leaky val) | Unmasked / Masked | 79.86% / 73.27% | — |
+
+¹ measured under fp16 autocast at the end of training (slightly pessimistic).
+² with TTA, before calibration (`output/best_model_mask_aware_tta_eval.json`).
 
 ---
 

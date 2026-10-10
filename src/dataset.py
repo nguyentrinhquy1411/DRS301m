@@ -19,12 +19,12 @@ import os
 import re
 import sys
 import json
+import time
 import random
 from pathlib import Path
 import torch
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
-from torchvision.datasets.folder import default_loader
 import numpy as np
 from PIL import Image, ImageDraw
 
@@ -137,9 +137,6 @@ def get_transforms(image_size: int = 224, grayscale: bool = False, occlusion_p: 
 # ---------------------------------------------------------------------
 # 2. CLASS DATASET DỰA TRÊN DANH SÁCH MẪU (SAMPLES DATASET)
 # ---------------------------------------------------------------------
-import time
-
-
 def safe_loader(path: str) -> Image.Image:
     """Nạp ảnh an toàn có retry chống transient lock (Windows Defender / file handle lag)."""
     for attempt in range(5):
@@ -154,20 +151,27 @@ def safe_loader(path: str) -> Image.Image:
 
 
 class SamplesDataset(Dataset):
-    """Dataset linh hoạt nạp từ danh sách tuple (img_path, class_idx)."""
-    def __init__(self, samples: list, classes: list, transform=None):
+    """Dataset linh hoạt nạp từ danh sách tuple (img_path, class_idx).
+    cache=True: giải mã toàn bộ ảnh vào RAM một lần (RAF-DB 100x100 -> ~30 KB/ảnh, ~0.7 GB cho
+    combined). Bỏ được chi phí đọc + giải mã JPEG mỗi epoch — quan trọng trên Windows,
+    nơi DataLoader phải chạy num_workers=0."""
+    def __init__(self, samples: list, classes: list, transform=None, cache: bool = False):
         self.samples = samples
         self.targets = [s[1] for s in samples]
         self.classes = classes
         self.transform = transform
         self.loader = safe_loader
+        self.images = None
+        if cache and samples:
+            from tqdm import tqdm
+            self.images = [self.loader(p) for p, _ in tqdm(samples, desc="  Nạp ảnh vào RAM", leave=False)]
 
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, index):
         path, target = self.samples[index]
-        image = self.loader(path)
+        image = self.images[index] if self.images is not None else self.loader(path)
         if self.transform is not None:
             image = self.transform(image)
         return image, target
@@ -286,7 +290,7 @@ def get_test_samples(data_mode: str = "combined") -> list:
 # ---------------------------------------------------------------------
 # 5. HÀM TẠO CÁC DATALOADER (TRAIN / VAL / TEST)
 # ---------------------------------------------------------------------
-def _loader(ds, batch_size, shuffle, num_workers, drop_last=False):
+def make_loader(ds, batch_size, shuffle, num_workers, drop_last=False):
     return DataLoader(
         ds,
         batch_size=batch_size,
@@ -308,6 +312,7 @@ def get_dataloaders(
     grayscale: bool = False,
     occlusion_p: float | None = None,
     erasing_p: float = 0.25,
+    cache_images: bool = False,
 ):
     """
     Trả về: train_loader, val_loader, test_loader, class_names, train_samples
@@ -320,13 +325,13 @@ def get_dataloaders(
     train_samples, val_samples = get_train_val_samples(data_mode, val_ratio, seed)
     test_samples = get_test_samples(data_mode)
 
-    train_dataset = SamplesDataset(train_samples, CLASSES, transform=train_transform)
-    val_dataset = SamplesDataset(val_samples, CLASSES, transform=eval_transform)
+    train_dataset = SamplesDataset(train_samples, CLASSES, transform=train_transform, cache=cache_images)
+    val_dataset = SamplesDataset(val_samples, CLASSES, transform=eval_transform, cache=cache_images)
     test_dataset = SamplesDataset(test_samples, CLASSES, transform=eval_transform)
 
-    train_loader = _loader(train_dataset, batch_size, True, num_workers, drop_last=True)
-    val_loader = _loader(val_dataset, batch_size, False, num_workers)
-    test_loader = _loader(test_dataset, batch_size, False, num_workers)
+    train_loader = make_loader(train_dataset, batch_size, True, num_workers, drop_last=True)
+    val_loader = make_loader(val_dataset, batch_size, False, num_workers)
+    test_loader = make_loader(test_dataset, batch_size, False, num_workers)
     return train_loader, val_loader, test_loader, CLASSES, train_samples
 
 
@@ -345,7 +350,7 @@ def get_benchmark_test_loaders(image_size: int = 224, batch_size: int = 64, gray
     orig = SamplesDataset(get_test_samples("original"), CLASSES, transform=eval_transform)
     masked = SamplesDataset(get_test_samples("masked"), CLASSES, transform=eval_transform)
     combined = SamplesDataset(orig.samples + masked.samples, CLASSES, transform=eval_transform)
-    loaders = [_loader(d, batch_size, False, num_workers) for d in (orig, masked, combined)]
+    loaders = [make_loader(d, batch_size, False, num_workers) for d in (orig, masked, combined)]
     return (*loaders, CLASSES)
 
 

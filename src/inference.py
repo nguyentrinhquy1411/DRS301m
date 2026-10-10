@@ -1,7 +1,11 @@
 """
 Module: src/inference.py
 Mục đích: Phần suy luận dùng chung cho train.py / evaluate.py / app.py / webcam_app.py
-1. predict_loader(): suy luận cả DataLoader, hỗ trợ Test-Time Augmentation (lật ngang).
+1. predict_loader(): suy luận cả DataLoader (luôn fp32), hỗ trợ Test-Time Augmentation (lật ngang).
+   calibrate_prior_bias(): chọn hệ số t trên tập VAL để cộng t*log(prior) vào logits.
+   Lý do: Logit-Adjusted loss làm mô hình dự đoán như thể các lớp cân bằng, trong khi
+   RAF-DB (cả train lẫn test) lệch mạnh về happy/neutral -> mô hình đoán thừa fear/disgust.
+   Cộng lại một phần log(prior) đưa dự đoán về đúng phân phối thực tế.
 2. FERPredictor: nạp checkpoint bất kỳ backbone, tiền xử lý đúng kích thước/chuẩn hoá
    lúc train, dự đoán theo batch nhiều khuôn mặt + Grad-CAM.
 3. FaceTracker: gán ID ổn định cho từng khuôn mặt qua các frame (IoU) và làm mượt
@@ -26,20 +30,46 @@ def get_device() -> torch.device:
     return torch.device("cpu")
 
 
+def get_logit_bias(ckpt: dict) -> torch.Tensor | None:
+    """Vector bias [C] đã hiệu chỉnh trên val lưu trong checkpoint (None nếu chưa hiệu chỉnh)."""
+    bias = ckpt.get("logit_bias")
+    return None if bias is None else torch.tensor(bias, dtype=torch.float32)
+
+
 @torch.no_grad()
-def predict_loader(model, loader, device, tta: bool = False, amp: bool = False):
-    """Trả về (logits [N, C] float32 CPU, labels [N]). TTA = trung bình logits ảnh gốc + ảnh lật ngang."""
+def predict_loader(model, loader, device, tta: bool = False, bias: torch.Tensor | None = None):
+    """Trả về (logits [N, C] float32 CPU, labels [N]). TTA = trung bình logits ảnh gốc + ảnh lật ngang.
+    Luôn chạy fp32: đánh giá dưới autocast fp16 từng làm tụt ~2 điểm accuracy với EfficientNet."""
     model.eval()
     all_logits, all_labels = [], []
     for images, labels in loader:
         images = images.to(device, non_blocking=True)
-        with torch.autocast(device_type=device.type, enabled=amp and device.type == "cuda"):
-            logits = model(images).float()
-            if tta:
-                logits = 0.5 * (logits + model(torch.flip(images, dims=[3])).float())
+        logits = model(images).float()
+        if tta:
+            logits = 0.5 * (logits + model(torch.flip(images, dims=[3])).float())
         all_logits.append(logits.cpu())
         all_labels.append(labels)
-    return torch.cat(all_logits), torch.cat(all_labels)
+    logits = torch.cat(all_logits)
+    if bias is not None:
+        logits = logits + bias
+    return logits, torch.cat(all_labels)
+
+
+def calibrate_prior_bias(val_logits: torch.Tensor, val_labels: torch.Tensor, class_prior: torch.Tensor,
+                         grid=None) -> tuple[float, dict]:
+    """Chọn t (trên tập VAL, không bao giờ trên test) để argmax(logits + t*log(prior)) có macro F1 cao nhất
+    (hoà thì lấy accuracy cao hơn, rồi t gần 0 hơn). Trả về (t tốt nhất, bảng {t: (macro F1, acc)})."""
+    from sklearn.metrics import f1_score
+    if grid is None:
+        grid = [round(-0.5 + 0.05 * i, 2) for i in range(41)]   # -0.5 .. 1.5
+    log_prior = torch.log(class_prior.float().clamp_min(1e-8))
+    y = val_labels.numpy()
+    table = {}
+    for t in grid:
+        pred = (val_logits + t * log_prior).argmax(1).numpy()
+        table[t] = (f1_score(y, pred, average="macro", zero_division=0), float((pred == y).mean()))
+    best_t = max(table, key=lambda t: (round(table[t][0], 4), round(table[t][1], 4), -abs(t)))
+    return best_t, table
 
 
 class FERPredictor:
@@ -51,6 +81,8 @@ class FERPredictor:
         self.input_size = int(self.ckpt.get("img_size", get_input_size(self.model_name)))
         self.grayscale = self.model_name in ("baseline", "improved")
         self.val_f1 = float(self.ckpt.get("best_val_f1", 0.0))
+        bias = get_logit_bias(self.ckpt)
+        self.logit_bias = None if bias is None else bias.to(self.device)
         self.grad_cam = GradCAM(self.model, self.model.get_last_conv_layer())
         if self.grayscale:
             mean, std = [0.5], [0.5]
@@ -79,7 +111,10 @@ class FERPredictor:
         logits = self.model(x)
         if tta:
             logits = 0.5 * (logits + self.model(torch.flip(x, dims=[3])))
-        return F.softmax(logits.float(), dim=1).cpu().numpy()
+        logits = logits.float()
+        if self.logit_bias is not None:
+            logits = logits + self.logit_bias
+        return F.softmax(logits, dim=1).cpu().numpy()
 
     def explain(self, crop_rgb: np.ndarray, tta: bool = True):
         """Grad-CAM cho 1 khuôn mặt. Trả về (heatmap [S,S], pred_idx, probs [7], ảnh RGB đã resize)."""

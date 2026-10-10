@@ -32,7 +32,7 @@ sys.path.append(str(ROOT_DIR / "src"))
 
 from dataset import get_benchmark_test_loaders
 from models import load_checkpoint_model, get_input_size
-from inference import predict_loader, get_device
+from inference import predict_loader, get_device, get_logit_bias
 
 
 def plot_cm(all_labels, all_preds, class_names, title, save_path):
@@ -59,7 +59,8 @@ def plot_cm(all_labels, all_preds, class_names, title, save_path):
     print(f"🖼️ Đã xuất ma trận nhầm lẫn: {save_path.name}")
 
 
-def evaluate_model(checkpoint_path: Path, output_dir: Path, tta: bool = False, batch_size: int = 64, num_workers: int = 0):
+def evaluate_model(checkpoint_path: Path, output_dir: Path, tta: bool = False, batch_size: int = 64, num_workers: int = 0,
+                   use_bias: bool = True):
     device = get_device()
     print("=" * 70)
     print("🧪 ĐÁNH GIÁ MÔ HÌNH TRÊN CÁC TẬP TEST ĐỘC LẬP")
@@ -77,12 +78,19 @@ def evaluate_model(checkpoint_path: Path, output_dir: Path, tta: bool = False, b
     print(f"• Val F1 lúc train  : {ckpt.get('best_val_f1', float('nan')):.4f}"
           + ("" if grouped else "  ⚠️ checkpoint cũ, val bị rò rỉ -> con số này bị thổi phồng"))
     print(f"• TTA (lật ngang)   : {'BẬT' if tta else 'TẮT'}")
+    bias = get_logit_bias(ckpt) if use_bias else None
+    info = ckpt.get("logit_bias_info", {})
+    if bias is not None:
+        print(f"• Prior-bias        : BẬT (t={info.get('t', float('nan')):+.2f}, hiệu chỉnh trên val)")
+    else:
+        print("• Prior-bias        : TẮT" + ("" if use_bias else " (--no-bias)")
+              + ("  ⚠️ chưa hiệu chỉnh, chạy src/calibrate.py" if use_bias and grouped else ""))
 
     orig_loader, masked_loader, comb_loader, class_names = get_benchmark_test_loaders(
         image_size=img_size, batch_size=batch_size, grayscale=model_name in ("baseline", "improved"),
         num_workers=num_workers)
 
-    stem = checkpoint_path.stem + ("_tta" if tta else "")
+    stem = checkpoint_path.stem + ("_tta" if tta else "") + ("_nobias" if not use_bias and get_logit_bias(ckpt) is not None else "")
     results = {}
     print("\n| Tập kiểm thử (Test Set)       | Accuracy  | Macro F1 | Số ảnh  |")
     print("|-------------------------------|:---------:|:--------:|:-------:|")
@@ -92,7 +100,7 @@ def evaluate_model(checkpoint_path: Path, output_dir: Path, tta: bool = False, b
                                ("combined", "3. Tổng hợp (Combined)", comb_loader)]:
         if len(loader.dataset) == 0:
             continue
-        logits, labels = predict_loader(model, loader, device, tta=tta)
+        logits, labels = predict_loader(model, loader, device, tta=tta, bias=bias)
         preds = logits.argmax(1).numpy()
         labels = labels.numpy()
         acc = accuracy_score(labels, preds)
@@ -117,6 +125,7 @@ def evaluate_model(checkpoint_path: Path, output_dir: Path, tta: bool = False, b
 
     out_json = output_dir / f"{stem}_eval.json"
     out_json.write_text(json.dumps({"checkpoint": checkpoint_path.name, "model_name": model_name, "tta": tta,
+                                    "logit_bias_t": info.get("t") if bias is not None else None,
                                     "best_val_f1": ckpt.get("best_val_f1"), "grouped_split": grouped,
                                     "results": results}, indent=2, ensure_ascii=False),
                         encoding="utf-8")
@@ -129,6 +138,7 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint", type=str, default="", help="Đường dẫn checkpoint (.pth)")
     parser.add_argument("--output-dir", type=str, default="output", help="Thư mục lưu kết quả")
     parser.add_argument("--tta", action="store_true", help="Test-Time Augmentation (lật ngang)")
+    parser.add_argument("--no-bias", action="store_true", help="Bỏ qua prior-bias đã hiệu chỉnh (xem logits thô)")
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--num-workers", type=int, default=0)
     args = parser.parse_args()
@@ -142,4 +152,5 @@ if __name__ == "__main__":
         ckpt_file = next((p for p in [output_path / "best_model_mask_aware.pth", output_path / "best_model_rafdb.pth"]
                           if p.exists()), output_path / "best_model.pth")
 
-    evaluate_model(ckpt_file, output_path, tta=args.tta, batch_size=args.batch_size, num_workers=args.num_workers)
+    evaluate_model(ckpt_file, output_path, tta=args.tta, batch_size=args.batch_size, num_workers=args.num_workers,
+                   use_bias=not args.no_bias)
