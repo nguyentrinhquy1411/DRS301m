@@ -78,14 +78,17 @@ def nearest(query: np.ndarray, ref: np.ndarray, chunk: int = 256):
     return idx, dist
 
 
-def norm_pixels(path: Path, size: int = 48) -> np.ndarray:
+def norm_pixels(path: Path, size: int = 48, upper_frac: float = 1.0) -> np.ndarray:
     with Image.open(path) as im:
-        a = np.asarray(im.convert("L").resize((size, size), Image.BILINEAR), dtype=np.float32).ravel()
+        g = im.convert("L")
+        if upper_frac < 1.0:
+            g = g.crop((0, 0, g.size[0], int(g.size[1] * upper_frac)))
+        a = np.asarray(g.resize((size, int(size * min(1.0, upper_frac) or 1)), Image.BILINEAR), dtype=np.float32).ravel()
     return (a - a.mean()) / (a.std() + 1e-6)
 
 
-def correlation(a: Path, b: Path) -> float:
-    va, vb = norm_pixels(a), norm_pixels(b)
+def correlation(a: Path, b: Path, upper_frac: float = 1.0) -> float:
+    va, vb = norm_pixels(a, upper_frac=upper_frac), norm_pixels(b, upper_frac=upper_frac)
     return float(va @ vb) / va.size
 
 
@@ -149,11 +152,24 @@ def run(args):
             out("   ❌ RÒ RỈ! Ví dụ:")
             for j in np.where(wrong)[0][:5]:
                 out(f"      {mpaths[j].name}  <-  {orig_paths[idx[j]]} (d={dist[j]})")
-        if (matched & ~name_ok).any():
-            problems += 1
-            out("   ⚠️ Tên file KHÔNG trỏ về ảnh gốc nguồn -> phép chia train/val theo nhóm sẽ sai. Ví dụ:")
-            for j in np.where(matched & ~name_ok)[0][:5]:
-                out(f"      {mpaths[j].name}  <-  {orig_paths[idx[j]].name} (d={dist[j]})")
+        # dHash nửa trên dễ trùng giữa 2 người khác nhau -> xác nhận bằng tương quan pixel nửa trên:
+        # chỉ coi là "tên sai" khi ảnh gốc ứng viên giống rõ rệt và giống hơn ảnh gốc mà tên file trỏ tới.
+        real_mismatch = []
+        for j in np.where(matched & ~name_ok)[0]:
+            c_near = correlation(mpaths[j], orig_paths[idx[j]], args.upper_frac)
+            c_own = correlation(mpaths[j], orig_paths[own[j]], args.upper_frac) if own[j] >= 0 else -1.0
+            is_real = c_near >= args.dup_corr and c_near > c_own + 0.02
+            if is_real:
+                real_mismatch.append(j)
+            out(f"      {'❌ tên sai' if is_real else '✓ báo nhầm'}: {mpaths[j].name}  ~  {orig_paths[idx[j]].name} "
+                f"(d={dist[j]}, corr={c_near:.3f}; ảnh gốc theo tên corr={c_own:.3f})")
+        if real_mismatch:
+            cross = [j for j in real_mismatch if orig_split[idx[j]] != expected]
+            if cross or len(real_mismatch) > 0.001 * len(mpaths):
+                problems += 1
+                out(f"   ❌ {len(real_mismatch)} ảnh khẩu trang đặt tên theo sai ảnh gốc -> phép chia train/val theo nhóm có thể rò rỉ.")
+            else:
+                out(f"   ⚠️ {len(real_mismatch)} ảnh đặt tên sai ảnh gốc (cùng split, < 0.1%): ảnh hưởng không đáng kể.")
         if (~matched).any():
             out(f"   ℹ️ {(~matched).sum():,} ảnh không khớp ảnh gốc nào (khẩu trang che quá cao? thử --upper-frac 0.35)")
         out(f"   - phân bố khoảng cách nearest: {sorted(Counter(dist.tolist()).items())[:10]}")
