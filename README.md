@@ -79,7 +79,7 @@ train/val split can keep an image and its masked copies on the same side.
 
 ```bash
 # 0. Check for data leakage (content-based, does not trust file names)
-python scripts/check_leakage.py
+python scripts/check_leakage.py --report output/leakage_report.txt
 
 # 1. Train on original RAF-DB faces  -> output/best_model_rafdb.pth
 python src/train.py --model hsemotion_b0 --data-mode original --epochs 30
@@ -127,6 +127,28 @@ image (no leakage); `t` is always chosen on validation, never on test.
 
 ¹ measured under fp16 autocast at the end of training (slightly pessimistic).
 ² with TTA, before prior-bias calibration.
+
+---
+
+## 🔒 Data Leakage Audit
+
+Full output: [`output/leakage_report.txt`](output/leakage_report.txt) (`python scripts/check_leakage.py --report ...`).
+The check matches images by **content** (perceptual hash, then normalized pixel correlation), not by file name.
+
+| Check | Result |
+| :--- | :--- |
+| `test_masked` → source image | 1,973/1,975 matched to an original **test** image, **0 from train** (2 too occluded to match) |
+| `train_masked` → source image | 7,816/7,830 matched to the original their file name points to, 0 from test; 2 hash mismatches confirmed as false alarms by pixel correlation, 12 too occluded to match |
+| Train vs. validation | 17,099 / 3,002 images, **0 shared source images** (split grouped by source image, fixed in `data/splits/`) |
+| Train vs. test (original RAF-DB) | 49/3,068 test images (1.6%) show the same person / same shoot as a train image |
+
+**Verdict: no leakage introduced by the pipeline.** The 49 train/test near-duplicates come from the official
+RAF-DB split, which is not identity-disjoint. Removing them from the test set changes accuracy by only
+0.05 points (RAF-DB model, 89.15% → 89.10%) and 0.19 points (Mask-Aware, 88.43% → 88.24%), so the results
+above are unaffected.
+
+The old pipeline (MobileNetV3 row above) split train/val randomly *after* mixing originals with their masked
+copies, so a validation image's masked twin was often in train: val F1 0.826 vs. test F1 0.718.
 
 ---
 
