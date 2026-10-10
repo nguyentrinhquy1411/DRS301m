@@ -1,0 +1,123 @@
+{
+  "hardware": {
+    "device": "mps",
+    "torch": "2.14.1",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "cpu": "arm"
+  },
+  "checkpoint": "best_model_mask_aware.pth",
+  "tta": false,
+  "cam_every": 10,
+  "results": [
+    {
+      "detect": 5.475699582602829,
+      "predict": 12.680945446481928,
+      "cam": 0.02793123829178512,
+      "total": 18.184576267376542,
+      "fps": 54.991658056614604,
+      "mode": "synthetic",
+      "gradcam": false,
+      "faces": 1,
+      "detected_mean": 0.95
+    },
+    {
+      "detect": 5.612475415691733,
+      "predict": 21.124399641994387,
+      "cam": 0.036877437960356474,
+      "total": 26.773752495646477,
+      "fps": 37.35001285914644,
+      "mode": "synthetic",
+      "gradcam": false,
+      "faces": 2,
+      "detected_mean": 1.82
+    },
+    {
+      "detect": 5.5451950477436185,
+      "predict": 29.65221584192477,
+      "cam": 0.04588327603414655,
+      "total": 35.24329416570254,
+      "fps": 28.374192131369004,
+      "mode": "synthetic",
+      "gradcam": false,
+      "faces": 3,
+      "detected_mean": 2.72
+    },
+    {
+      "detect": 6.368765457300469,
+      "predict": 43.16508998745121,
+      "cam": 0.06568167940713465,
+      "total": 49.599537124158815,
+      "fps": 20.161478473010238,
+      "mode": "synthetic",
+      "gradcam": false,
+      "faces": 4,
+      "detected_mean": 3.77
+    },
+    {
+      "detect": 6.739634964615107,
+      "predict": 50.76310209929943,
+      "cam": 0.07923210156150162,
+      "total": 57.58196916547604,
+      "fps": 17.366547453878358,
+      "mode": "synthetic",
+      "gradcam": false,
+      "faces": 5,
+      "detected_mean": 4.49
+    },
+    {
+      "detect": 5.383517047157511,
+      "predict": 13.276868750108406,
+      "cam": 8.107096694875509,
+      "total": 26.767482492141426,
+      "fps": 37.358761709981,
+      "mode": "synthetic",
+      "gradcam": true,
+      "faces": 1,
+      "detected_mean": 0.93
+    },
+    {
+      "detect": 5.781842914875597,
+      "predict": 23.699948792345822,
+      "cam": 9.078699616948143,
+      "total": 38.56049132416956,
+      "fps": 25.93327952160205,
+      "mode": "synthetic",
+      "gradcam": true,
+      "faces": 2,
+      "detected_mean": 1.91
+    },
+    {
+      "detect": 6.062618300784379,
+      "predict": 33.17313334904611,
+      "cam": 9.102905431063846,
+      "total": 48.338657080894336,
+      "fps": 20.687376530268693,
+      "mode": "synthetic",
+      "gradcam": true,
+      "faces": 3,
+      "detected_mean": 2.87
+    },
+    {
+      "detect": 6.410681196721271,
+      "predict": 42.42062669363804,
+      "cam": 9.083938759285957,
+      "total": 57.91524664964527,
+      "fps": 17.266610397939573,
+      "mode": "synthetic",
+      "gradcam": true,
+      "faces": 4,
+      "detected_mean": 3.8
+    },
+    {
+      "detect": 6.728376275859773,
+      "predict": 50.301565874833614,
+      "cam": 9.163699919590726,
+      "total": 66.19364207028411,
+      "fps": 15.107191094549602,
+      "mode": "synthetic",
+      "gradcam": true,
+      "faces": 5,
+      "detected_mean": 4.56
+    }
+  ]
+}

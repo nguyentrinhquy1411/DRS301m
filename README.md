@@ -41,7 +41,8 @@ Real-Time Multi-Face Explainable Facial Expression Recognition on In-The-Wild Fa
 │   └── train.py            # Fine-tuning pipeline
 ├── scripts/
 │   ├── download_raf_db.py  # Script to download/prepare RAF-DB
-│   └── check_leakage.py    # Content-based train/val/test leakage check
+│   ├── check_leakage.py    # Content-based train/val/test leakage check
+│   └── benchmark_fps.py    # Real-time pipeline FPS benchmark
 ├── output/                 # Checkpoints, confusion matrices, training histories
 ├── docs/                   # Project proposal & methodology documentation
 ├── app.py                  # Real-Time Streamlit Web App
@@ -127,6 +128,23 @@ image (no leakage); `t` is always chosen on validation, never on test.
 
 ¹ measured under fp16 autocast at the end of training (slightly pessimistic).
 ² with TTA, before prior-bias calibration.
+
+---
+
+## ⚡ Real-Time Performance
+
+`python scripts/benchmark_fps.py --no-tta --cam-every 10` — Apple M1 (16 GB, MPS), Mask-Aware HSEmotion-B0,
+1280x720 frames, full pipeline (YuNet + alignment, batched prediction, tracker, Grad-CAM), camera capture excluded.
+Raw data: [`output/fps_benchmark_m1.json`](output/fps_benchmark_m1.json).
+
+| Faces in frame | 1 | 2 | 3 | 4 | 5 |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| FPS, no Grad-CAM | **55.0** | 37.4 | 28.4 | 20.2 | 17.4 |
+| FPS, Grad-CAM refreshed every 10 frames | **37.4** | 25.9 | 20.7 | 17.3 | 15.1 |
+
+Webcam/video modes disable flip-TTA (≤0.1 accuracy points: 88.43% → 88.43%, F1 0.822 → 0.818) and refresh Grad-CAM
+every 10 frames (one Grad-CAM pass costs ~100 ms on M1). Together: 1 face with Grad-CAM goes from 7.7 to 37.4 FPS.
+Still-image modes (snapshot, group photo, XAI inspector) keep TTA.
 
 ---
 

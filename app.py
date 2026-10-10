@@ -94,6 +94,12 @@ CHECKPOINT_FALLBACK = ROOT_DIR / "output" / "best_model.pth"
 REAL_MASKED_DIR = ROOT_DIR / "data" / "real_masked_faces"
 MULTI_SAMPLE_DIR = ROOT_DIR / "data" / "multi_face_samples"
 
+# Chế độ real-time (webcam / video): tắt TTA (chỉ mất ≤0.1 điểm accuracy, nhanh gấp ~2 ở bước dự đoán)
+# và chỉ tính lại Grad-CAM mỗi N frame (Grad-CAM cần backward, ~100 ms/lần trên Apple M1).
+# Đo bằng scripts/benchmark_fps.py: 1 mặt 7.7 -> 34.7 FPS.
+REALTIME_TTA = False
+GRADCAM_EVERY = 10
+
 # ╔═══════════════════════════════════════════════════════════════════╗
 # ║  CUSTOM CSS — Premium Dark Theme                                 ║
 # ╚═══════════════════════════════════════════════════════════════════╝
@@ -203,9 +209,9 @@ def predict_with_gradcam(predictor: FERPredictor, crop):
     return CLASSES[pred_idx], float(probs[pred_idx] * 100), probs, heatmap, rgb_np
 
 
-def predict_faces(predictor: FERPredictor, faces) -> np.ndarray:
-    """Dự đoán batch cho mọi khuôn mặt trong frame (TTA lật ngang). Trả về probs [N, 7]."""
-    return predictor.predict([f.crop_rgb for f in faces])
+def predict_faces(predictor: FERPredictor, faces, tta: bool = True) -> np.ndarray:
+    """Dự đoán batch cho mọi khuôn mặt trong frame (tuỳ chọn TTA lật ngang). Trả về probs [N, 7]."""
+    return predictor.predict([f.crop_rgb for f in faces], tta=tta)
 
 
 def face_from_image(detector: MultiFaceDetector, img: Image.Image) -> np.ndarray:
@@ -392,6 +398,8 @@ def _process_webcam_live(detector, predictor, alpha):
     frame_count = 0
     fps = 0.0
     tracker = FaceTracker()
+    primary_crop = None
+    primary_heatmap = None
 
     try:
         while run_cam:
@@ -413,20 +421,18 @@ def _process_webcam_live(detector, predictor, alpha):
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
             results = []
-            primary_crop = None
             primary_probs = None
-            primary_heatmap = None
             primary_label = ""
             primary_conf = 0.0
 
             if detected:
-                tracked = tracker.update([f.bbox for f in detected], predict_faces(predictor, detected))
+                tracked = tracker.update([f.bbox for f in detected], predict_faces(predictor, detected, tta=REALTIME_TTA))
                 for idx, (face, (tid, probs)) in enumerate(zip(detected, tracked)):
                     label, conf = label_conf(probs)
                     if idx == 0:   # mặt lớn nhất
                         primary_probs, primary_label, primary_conf = probs, label, conf
-                        if enable_xai:
-                            primary_heatmap, _, _, primary_crop = predictor.explain(face.crop_rgb)
+                        if enable_xai and (primary_heatmap is None or frame_count % GRADCAM_EVERY == 0):
+                            primary_heatmap, _, _, primary_crop = predictor.explain(face.crop_rgb, tta=REALTIME_TTA)
                     results.append({"face_id": tid, "label": label, "conf": conf, "bbox": face.bbox})
 
             annotated = annotate_frame(rgb_frame, results)
@@ -521,7 +527,7 @@ def _process_video(path, detector, predictor, skip, save_vid):
             results = []
 
             if faces:
-                tracked = tracker.update([f.bbox for f in faces], predict_faces(predictor, faces))
+                tracked = tracker.update([f.bbox for f in faces], predict_faces(predictor, faces, tta=REALTIME_TTA))
                 for face, (tid, probs) in zip(faces, tracked):
                     label, conf = label_conf(probs)
                     results.append({"face_id": tid, "label": label, "conf": conf, "bbox": face.bbox})

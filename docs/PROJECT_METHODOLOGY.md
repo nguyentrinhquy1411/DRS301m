@@ -140,7 +140,15 @@ Tất cả số liệu trên **split test chính thức của RAF-DB**, fp32, c�
 * Mask-Aware gần như không mất độ chính xác trên mặt thường (−0.7 điểm) nhưng tăng **+22.7 điểm** trên mặt đeo khẩu trang.
 * Khi bị che miệng, mô hình chỉ train RAF-DB dồn dự đoán về `neutral` (recall 0.82, precision 0.37); Mask-Aware khắc phục phần lớn hiện tượng này.
 * Lớp khó nhất vẫn là `disgust` và `fear` trên mặt đeo khẩu trang (F1 0.47 và 0.53) vì các biểu cảm này phụ thuộc nhiều vào mũi và miệng — đây là giới hạn tự nhiên của bài toán.
-* Tốc độ suy luận (FPS) phụ thuộc phần cứng và số khuôn mặt; cần đo trực tiếp trên máy demo trước khi đưa vào báo cáo.
+* **Tốc độ suy luận** (`scripts/benchmark_fps.py`, kết quả ở `output/fps_benchmark_m1.json`): Apple M1 16 GB, GPU MPS, Mask-Aware HSEmotion-B0, frame 1280x720, trung bình 100 frame. Đo toàn bộ pipeline gồm detect + căn chỉnh, dự đoán batch, tracker, Grad-CAM; không tính thời gian chụp của camera.
+
+| Số khuôn mặt | 1 | 2 | 3 | 4 | 5 |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| FPS, không Grad-CAM | **55.0** | 37.4 | 28.4 | 20.2 | 17.4 |
+| FPS, có Grad-CAM (cập nhật mỗi 10 frame) | **37.4** | 25.9 | 20.7 | 17.3 | 15.1 |
+
+  * Từng bước: detect + căn chỉnh ~5–7 ms/frame; dự đoán ~10 ms cho mỗi khuôn mặt (depthwise conv trên GPU M1 không tăng tốc khi gom batch); một lần Grad-CAM ~90–100 ms (cần backward).
+  * Hai tối ưu cho chế độ real-time: **tắt TTA** (chỉ mất ≤0.1 điểm accuracy: 88.43% → 88.43%, F1 0.822 → 0.818 với Mask-Aware) và **chỉ tính lại Grad-CAM mỗi 10 frame**, dùng lại heatmap ở các frame giữa. Với 1 khuôn mặt có Grad-CAM: **7.7 → 37.4 FPS**. Chế độ ảnh tĩnh (snapshot, ảnh nhóm, XAI Inspector) vẫn dùng TTA.
 
 **Kiểm tra rò rỉ dữ liệu** (`scripts/check_leakage.py`, báo cáo đầy đủ ở `output/leakage_report.txt`): đối chiếu ảnh bằng nội dung (perceptual hash + tương quan pixel), không dựa vào tên file.
 * 1,973/1,975 ảnh `test_masked` truy được về ảnh gốc thuộc **test**, 0 ảnh từ train.
@@ -163,6 +171,7 @@ Tất cả số liệu trên **split test chính thức của RAF-DB**, fp32, c�
 * **Streamlit app (`app.py`):** Live webcam, phân tích video tải lên (xuất video đã gán nhãn), chụp snapshot, phân tích ảnh nhóm, XAI Inspector, so sánh RAF-DB với Mask-Aware.
 * **Desktop app (`webcam_app.py`):** nạp sẵn cả 2 mô hình, đổi mô hình tức thì bằng phím `1` / `2` / `M`, bật/tắt Grad-CAM bằng `G`.
 * **Ổn định theo thời gian:** tracker IoU giữ ID cho từng khuôn mặt, làm mượt xác suất bằng EMA để nhãn không nhảy giữa các frame.
+* **Tối ưu real-time:** webcam/video tắt TTA và chỉ cập nhật Grad-CAM mỗi 10 frame (xem bảng FPS ở Phase 4).
 
 ---
 
@@ -211,10 +220,12 @@ Tuần 6: Ứng dụng Real-Time & Hoàn thiện Báo cáo
 2. **Về mặt giải thích khoa học (XAI):**
    * Grad-CAM thể hiện vùng quyết định hợp lý về mặt giải phẫu (nụ cười Duchenne, cơ cau mày, mắt mở to), và vùng chú ý dịch lên mắt/lông mày khi miệng bị che.
 3. **Về sản phẩm ứng dụng:**
-   * Nhận diện đồng thời nhiều khuôn mặt từ webcam/video với nhãn ổn định theo thời gian; FPS cần đo trên máy demo.
+   * Mục tiêu ban đầu 25–40 FPS với 2–5 khuôn mặt → trên Apple M1: **55 FPS (1 mặt), 37 FPS (2 mặt), 17 FPS (5 mặt)** không bật Grad-CAM; 37 / 26 / 15 FPS khi bật Grad-CAM. Đạt mục tiêu với 1–2 người; từ 4–5 người thấp hơn mục tiêu trên M1 (GPU NVIDIA sẽ nhanh hơn, chưa đo).
+   * Nhãn ổn định theo thời gian nhờ tracker IoU + làm mượt xác suất.
    * Click chọn bất kỳ khuôn mặt nào để xem bản đồ nhiệt Grad-CAM chi tiết.
 
 **Hạn chế cần nêu trong báo cáo:**
 * Dữ liệu khẩu trang là **tổng hợp** (MaskTheFace); chưa có tập khẩu trang thật đủ lớn để đánh giá định lượng.
+* FPS đo bằng frame tổng hợp trên Apple M1; chưa đo trên webcam thật (cần cấp quyền camera) và trên GPU NVIDIA.
 * Split chính thức RAF-DB không tách theo danh tính (1.6% ảnh test trùng người với train, ảnh hưởng ≤ 0.2 điểm).
 * `disgust` và `fear` khi đeo khẩu trang vẫn khó (F1 0.47 và 0.53) do phụ thuộc vào vùng mũi/miệng.

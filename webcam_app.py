@@ -66,6 +66,12 @@ EXPLANATIONS = {
     "neutral": "Nhiet phan bo deu - co tha long tu nhien",
 }
 
+# Real-time: tắt TTA (≤0.1 điểm accuracy) và chỉ tính lại Grad-CAM mỗi N frame (backward ~100 ms trên M1).
+# Đo bằng scripts/benchmark_fps.py.
+REALTIME_TTA = False
+GRADCAM_EVERY = 10
+
+
 def get_optimal_device() -> torch.device:
     if torch.backends.mps.is_available():
         return torch.device("mps")
@@ -179,6 +185,7 @@ class WebcamFERApp:
         primary_gradcam_overlay = None
         primary_label = "Chua ro"
         primary_conf = 0.0
+        frame_idx = 0
 
         try:
             while True:
@@ -189,6 +196,7 @@ class WebcamFERApp:
 
                 # Lật gương
                 frame = cv2.flip(frame, 1)
+                frame_idx += 1
                 orig_h, orig_w = frame.shape[:2]
 
                 # FPS
@@ -213,7 +221,7 @@ class WebcamFERApp:
 
                 faces_info = []
                 if detected_faces:
-                    probs_all = predictor.predict([f.crop_rgb for f in detected_faces])
+                    probs_all = predictor.predict([f.crop_rgb for f in detected_faces], tta=REALTIME_TTA)
                     tracked = self.tracker.update([f.bbox for f in detected_faces], probs_all)
                 else:
                     tracked = []
@@ -232,8 +240,8 @@ class WebcamFERApp:
                         primary_face_crop = cv2.resize(face_bgr, (120, 120))
                         primary_label, primary_conf = label, conf
                         self.smoothed_probs = probs
-                        if self.enable_gradcam:
-                            heatmap, _, _, rgb_in = predictor.explain(face.crop_rgb)
+                        if self.enable_gradcam and (primary_gradcam_overlay is None or frame_idx % GRADCAM_EVERY == 0):
+                            heatmap, _, _, rgb_in = predictor.explain(face.crop_rgb, tta=REALTIME_TTA)
                             heatmap_bgr = cv2.applyColorMap(np.uint8(255 * heatmap), cv2.COLORMAP_JET)
                             bgr_in = cv2.cvtColor(rgb_in, cv2.COLOR_RGB2BGR)
                             primary_gradcam_overlay = cv2.addWeighted(bgr_in, 0.6, heatmap_bgr, 0.4, 0)
