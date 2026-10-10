@@ -137,6 +137,22 @@ def get_transforms(image_size: int = 224, grayscale: bool = False, occlusion_p: 
 # ---------------------------------------------------------------------
 # 2. CLASS DATASET DỰA TRÊN DANH SÁCH MẪU (SAMPLES DATASET)
 # ---------------------------------------------------------------------
+import time
+
+
+def safe_loader(path: str) -> Image.Image:
+    """Nạp ảnh an toàn có retry chống transient lock (Windows Defender / file handle lag)."""
+    for attempt in range(5):
+        try:
+            with open(path, "rb") as f:
+                with Image.open(f) as img:
+                    return img.convert("RGB")
+        except OSError:
+            if attempt == 4:
+                raise
+            time.sleep(0.02)
+
+
 class SamplesDataset(Dataset):
     """Dataset linh hoạt nạp từ danh sách tuple (img_path, class_idx)."""
     def __init__(self, samples: list, classes: list, transform=None):
@@ -144,7 +160,7 @@ class SamplesDataset(Dataset):
         self.targets = [s[1] for s in samples]
         self.classes = classes
         self.transform = transform
-        self.loader = default_loader
+        self.loader = safe_loader
 
     def __len__(self):
         return len(self.samples)
@@ -288,7 +304,7 @@ def get_dataloaders(
     val_ratio: float = 0.15,
     seed: int = 42,
     image_size: int = 224,
-    num_workers: int = 4,
+    num_workers: int = 0 if os.name == "nt" else 4,
     grayscale: bool = False,
     occlusion_p: float | None = None,
     erasing_p: float = 0.25,

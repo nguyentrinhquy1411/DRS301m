@@ -118,7 +118,8 @@ def evaluate_model(checkpoint_path: Path, output_dir: Path, tta: bool = False, b
     out_json = output_dir / f"{stem}_eval.json"
     out_json.write_text(json.dumps({"checkpoint": checkpoint_path.name, "model_name": model_name, "tta": tta,
                                     "best_val_f1": ckpt.get("best_val_f1"), "grouped_split": grouped,
-                                    "results": results}, indent=2, ensure_ascii=False))
+                                    "results": results}, indent=2, ensure_ascii=False),
+                        encoding="utf-8")
     print(f"💾 Đã lưu kết quả: {out_json.name}")
     print("=" * 70)
 

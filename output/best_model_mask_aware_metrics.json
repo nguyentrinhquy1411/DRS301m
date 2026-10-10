@@ -1,0 +1,62 @@
+{
+  "best_val_f1": 0.6895159295060387,
+  "test": {
+    "Mặt gốc (Unmasked)": {
+      "acc": 0.8191003799438477,
+      "macro_f1": 0.7285225568724091,
+      "acc_tta": 0.8230117559432983,
+      "macro_f1_tta": 0.7311592401308395,
+      "n": 3068
+    },
+    "Có khẩu trang (Masked)": {
+      "acc": 0.7326582074165344,
+      "macro_f1": 0.6515870526924233,
+      "acc_tta": 0.7306329011917114,
+      "macro_f1_tta": 0.6458362013298539,
+      "n": 1975
+    },
+    "Tổng hợp (Combined)": {
+      "acc": 0.7961530685424805,
+      "macro_f1": 0.7165854108670555,
+      "acc_tta": 0.7975411415100098,
+      "macro_f1_tta": 0.7159149587227202,
+      "n": 5043
+    }
+  },
+  "args": {
+    "model": "hsemotion_b0",
+    "head": null,
+    "data_mode": "combined",
+    "init_checkpoint": "output/best_model_rafdb.pth",
+    "output_dir": "output",
+    "output_name": "",
+    "freeze_epochs": 1,
+    "epochs": 20,
+    "warmup_epochs": 1.0,
+    "patience": 8,
+    "batch_size": 64,
+    "lr": 0.0001,
+    "head_lr": 0.001,
+    "weight_decay": 0.05,
+    "clip_grad": 5.0,
+    "ema_decay": 0.998,
+    "amp": true,
+    "loss": "logit_adjust",
+    "la_tau": 1.0,
+    "label_smoothing": 0.1,
+    "mixup_alpha": 0.2,
+    "cutmix_alpha": 1.0,
+    "mix_prob": 0.5,
+    "occlusion_p": null,
+    "erasing_p": 0.25,
+    "flip_consistency": 0.0,
+    "teacher_checkpoint": "",
+    "kd_alpha": 0.5,
+    "kd_temp": 4.0,
+    "val_ratio": 0.15,
+    "split_seed": 42,
+    "seed": 42,
+    "num_workers": 0
+  },
+  "train_minutes": 97.1
+}

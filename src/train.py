@@ -438,7 +438,8 @@ def run_training(args):
 
     metrics_path = checkpoint_path.with_name(checkpoint_path.stem + "_metrics.json")
     metrics_path.write_text(json.dumps({"best_val_f1": best_val_f1, "test": results, "args": vars(args),
-                                        "train_minutes": round(total_time / 60, 2)}, indent=2, ensure_ascii=False))
+                                        "train_minutes": round(total_time / 60, 2)}, indent=2, ensure_ascii=False),
+                            encoding="utf-8")
     print(f"💾 Đã lưu kết quả benchmark: {metrics_path.name}")
 
 
@@ -487,7 +488,8 @@ def build_parser():
     p.add_argument("--val-ratio", type=float, default=0.15)
     p.add_argument("--split-seed", type=int, default=42, help="Seed phép chia val (giữ nguyên giữa các giai đoạn!)")
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--num-workers", type=int, default=4)
+    p.add_argument("--num-workers", type=int, default=0 if sys.platform == "win32" else 4,
+                   help="Số workers DataLoader (0 trên Windows để tránh lỗi shm.dll)")
     return p
 
 
