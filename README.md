@@ -119,7 +119,7 @@ image (no leakage); `t` is always chosen on validation, never on test.
 | Model | Test set | Raw logits | TTA + prior bias |
 | :--- | :--- | :---: | :---: |
 | HSEmotion-B0, RAF-DB only (`best_model_rafdb.pth`, t=0.70) | Unmasked (3,068) | 84.22% / F1 0.764 | **89.15% / F1 0.833** |
-| HSEmotion-B0, RAF-DB only | Masked (synthetic, 1,975) | 47.90% / F1 0.451 ¹ | — |
+| HSEmotion-B0, RAF-DB only | Masked (synthetic, 1,975) | 47.90% / F1 0.451 ¹ | **56.61% / F1 0.534** |
 | HSEmotion-B0 Mask-Aware (`best_model_mask_aware.pth`, t=0.85) | Unmasked | 84.06% / F1 0.761 ² | **88.43% / F1 0.822** |
 | HSEmotion-B0 Mask-Aware | Masked (synthetic) | 73.22% / F1 0.647 ² | **79.29% / F1 0.708** |
 | HSEmotion-B0 Mask-Aware | Combined (5,043) | 79.81% / F1 0.717 ² | **84.85% / F1 0.779** |
