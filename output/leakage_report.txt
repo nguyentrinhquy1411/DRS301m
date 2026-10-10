@@ -6,9 +6,8 @@
 [train_masked] khớp được ảnh gốc: 7,818/7,830 (Hamming ≤ 6)
    - tên file trỏ đúng ảnh gốc nguồn   : 7,816/7,830
    - nguồn thuộc split khác 'train' : 0
-   ⚠️ Tên file KHÔNG trỏ về ảnh gốc nguồn -> phép chia train/val theo nhóm sẽ sai. Ví dụ:
-      raf_train_05220_surgical.jpg  <-  raf_train_06178.jpg (d=4)
-      raf_train_04854_surgical.jpg  <-  raf_train_01202.jpg (d=5)
+      ✓ báo nhầm: raf_train_05220_surgical.jpg  ~  raf_train_06178.jpg (d=4, corr=0.625; ảnh gốc theo tên corr=0.826)
+      ✓ báo nhầm: raf_train_04854_surgical.jpg  ~  raf_train_01202.jpg (d=5, corr=0.612; ảnh gốc theo tên corr=0.949)
    ℹ️ 12 ảnh không khớp ảnh gốc nào (khẩu trang che quá cao? thử --upper-frac 0.35)
    - phân bố khoảng cách nearest: [(0, 6241), (1, 992), (2, 371), (3, 134), (4, 54), (5, 16), (6, 10), (7, 4), (8, 5), (9, 2)]
 
@@ -92,4 +91,4 @@
 
 [train vs val] train=17,099 val=3,002 nhóm chung=0
 
-❌ CÓ 1 VẤN ĐỀ CẦN XỬ LÝ (xem ở trên).
+✅ KHÔNG PHÁT HIỆN RÒ RỈ.
