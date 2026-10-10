@@ -1,0 +1,95 @@
+• train        : 12,271 ảnh  (E:\dev\DSR301m\data\raf_db\train)
+• test         :  3,068 ảnh  (E:\dev\DSR301m\data\raf_db\test)
+• train_masked :  7,830 ảnh  (E:\dev\DSR301m\data\raf_db\train_masked)
+• test_masked  :  1,975 ảnh  (E:\dev\DSR301m\data\raf_db\test_masked)
+
+[train_masked] khớp được ảnh gốc: 7,818/7,830 (Hamming ≤ 6)
+   - tên file trỏ đúng ảnh gốc nguồn   : 7,816/7,830
+   - nguồn thuộc split khác 'train' : 0
+   ⚠️ Tên file KHÔNG trỏ về ảnh gốc nguồn -> phép chia train/val theo nhóm sẽ sai. Ví dụ:
+      raf_train_05220_surgical.jpg  <-  raf_train_06178.jpg (d=4)
+      raf_train_04854_surgical.jpg  <-  raf_train_01202.jpg (d=5)
+   ℹ️ 12 ảnh không khớp ảnh gốc nào (khẩu trang che quá cao? thử --upper-frac 0.35)
+   - phân bố khoảng cách nearest: [(0, 6241), (1, 992), (2, 371), (3, 134), (4, 54), (5, 16), (6, 10), (7, 4), (8, 5), (9, 2)]
+
+[test_masked] khớp được ảnh gốc: 1,973/1,975 (Hamming ≤ 6)
+   - tên file trỏ đúng ảnh gốc nguồn   : 1,973/1,975
+   - nguồn thuộc split khác 'test' : 0
+   ℹ️ 2 ảnh không khớp ảnh gốc nào (khẩu trang che quá cao? thử --upper-frac 0.35)
+   - phân bố khoảng cách nearest: [(0, 1580), (1, 256), (2, 76), (3, 31), (4, 21), (5, 6), (6, 3), (10, 1), (11, 1)]
+
+[train vs test gốc] ứng viên dHash (Hamming ≤ 6): 1,205 -> xác nhận trùng (tương quan ≥ 0.93): 49/3,068 (1.60%), nghi ngờ (0.88–0.93): 20
+      [trùng] raf_test_01937.jpg ~ raf_train_07955.jpg  corr=0.998  cùng nhãn
+      [trùng] raf_test_02516.jpg ~ raf_train_10158.jpg  corr=0.994  cùng nhãn
+      [trùng] raf_test_02261.jpg ~ raf_train_06486.jpg  corr=0.993  cùng nhãn
+      [trùng] raf_test_00315.jpg ~ raf_train_01220.jpg  corr=0.992  cùng nhãn
+      [trùng] raf_test_01075.jpg ~ raf_train_04372.jpg  corr=0.992  cùng nhãn
+      [trùng] raf_test_02813.jpg ~ raf_train_09976.jpg  corr=0.991  cùng nhãn
+      [trùng] raf_test_01676.jpg ~ raf_train_06764.jpg  corr=0.990  cùng nhãn
+      [trùng] raf_test_01147.jpg ~ raf_train_04729.jpg  corr=0.989  cùng nhãn
+      [trùng] raf_test_01963.jpg ~ raf_train_08124.jpg  corr=0.986  cùng nhãn
+      [trùng] raf_test_02482.jpg ~ raf_train_10355.jpg  corr=0.986  cùng nhãn
+      [trùng] raf_test_02853.jpg ~ raf_train_10355.jpg  corr=0.985  cùng nhãn
+      [trùng] raf_test_01139.jpg ~ raf_train_04678.jpg  corr=0.985  cùng nhãn
+      [trùng] raf_test_01175.jpg ~ raf_train_04832.jpg  corr=0.985  cùng nhãn
+      [trùng] raf_test_02518.jpg ~ raf_train_10595.jpg  corr=0.984  cùng nhãn
+      [trùng] raf_test_01755.jpg ~ raf_train_07180.jpg  corr=0.984  cùng nhãn
+      [trùng] raf_test_01912.jpg ~ raf_train_07820.jpg  corr=0.979  cùng nhãn
+      [trùng] raf_test_02990.jpg ~ raf_train_09862.jpg  corr=0.979  cùng nhãn
+      [trùng] raf_test_01261.jpg ~ raf_train_05365.jpg  corr=0.978  cùng nhãn
+      [trùng] raf_test_02344.jpg ~ raf_train_09549.jpg  corr=0.978  cùng nhãn
+      [trùng] raf_test_01975.jpg ~ raf_train_08124.jpg  corr=0.978  cùng nhãn
+      [trùng] raf_test_02821.jpg ~ raf_train_09841.jpg  corr=0.977  cùng nhãn
+      [trùng] raf_test_02180.jpg ~ raf_train_08889.jpg  corr=0.975  cùng nhãn
+      [trùng] raf_test_01858.jpg ~ raf_train_07590.jpg  corr=0.973  cùng nhãn
+      [trùng] raf_test_01611.jpg ~ raf_train_04640.jpg  corr=0.971  cùng nhãn
+      [trùng] raf_test_01274.jpg ~ raf_train_05273.jpg  corr=0.971  cùng nhãn
+      [trùng] raf_test_02166.jpg ~ raf_train_08836.jpg  corr=0.970  cùng nhãn
+      [trùng] raf_test_01967.jpg ~ raf_train_08035.jpg  corr=0.970  cùng nhãn
+      [trùng] raf_test_00544.jpg ~ raf_train_02215.jpg  corr=0.967  cùng nhãn
+      [trùng] raf_test_00677.jpg ~ raf_train_02802.jpg  corr=0.966  cùng nhãn
+      [trùng] raf_test_01380.jpg ~ raf_train_05593.jpg  corr=0.960  cùng nhãn
+      [trùng] raf_test_01340.jpg ~ raf_train_05463.jpg  corr=0.960  cùng nhãn
+      [trùng] raf_test_01968.jpg ~ raf_train_08005.jpg  corr=0.957  cùng nhãn
+      [trùng] raf_test_02567.jpg ~ raf_train_11335.jpg  corr=0.957  cùng nhãn
+      [trùng] raf_test_00689.jpg ~ raf_train_02857.jpg  corr=0.954  cùng nhãn
+      [trùng] raf_test_02651.jpg ~ raf_train_03921.jpg  corr=0.952  KHÁC nhãn (neutral vs surprise)
+      [trùng] raf_test_00918.jpg ~ raf_train_03837.jpg  corr=0.952  cùng nhãn
+      [trùng] raf_test_02182.jpg ~ raf_train_08786.jpg  corr=0.950  cùng nhãn
+      [trùng] raf_test_02179.jpg ~ raf_train_08896.jpg  corr=0.948  cùng nhãn
+      [trùng] raf_test_01352.jpg ~ raf_train_05507.jpg  corr=0.948  cùng nhãn
+      [trùng] raf_test_00283.jpg ~ raf_train_09425.jpg  corr=0.944  KHÁC nhãn (sad vs disgust)
+      [trùng] raf_test_02177.jpg ~ raf_train_08896.jpg  corr=0.944  cùng nhãn
+      [trùng] raf_test_02319.jpg ~ raf_train_00102.jpg  corr=0.942  cùng nhãn
+      [trùng] raf_test_01449.jpg ~ raf_train_05914.jpg  corr=0.940  cùng nhãn
+      [trùng] raf_test_02854.jpg ~ raf_train_11985.jpg  corr=0.939  cùng nhãn
+      [trùng] raf_test_01829.jpg ~ raf_train_07506.jpg  corr=0.938  cùng nhãn
+      [trùng] raf_test_01474.jpg ~ raf_train_06033.jpg  corr=0.936  cùng nhãn
+      [trùng] raf_test_00141.jpg ~ raf_train_00534.jpg  corr=0.936  cùng nhãn
+      [trùng] raf_test_00297.jpg ~ raf_train_09425.jpg  corr=0.936  KHÁC nhãn (sad vs disgust)
+      [trùng] raf_test_01085.jpg ~ raf_train_04470.jpg  corr=0.932  cùng nhãn
+      [nghi ngờ] raf_test_02178.jpg ~ raf_train_08888.jpg  corr=0.930  cùng nhãn
+      [nghi ngờ] raf_test_01450.jpg ~ raf_train_05909.jpg  corr=0.927  cùng nhãn
+      [nghi ngờ] raf_test_01170.jpg ~ raf_train_04818.jpg  corr=0.923  cùng nhãn
+      [nghi ngờ] raf_test_01086.jpg ~ raf_train_04485.jpg  corr=0.922  cùng nhãn
+      [nghi ngờ] raf_test_01440.jpg ~ raf_train_05876.jpg  corr=0.922  cùng nhãn
+      [nghi ngờ] raf_test_02213.jpg ~ raf_train_08855.jpg  corr=0.918  cùng nhãn
+      [nghi ngờ] raf_test_01084.jpg ~ raf_train_04469.jpg  corr=0.916  cùng nhãn
+      [nghi ngờ] raf_test_01852.jpg ~ raf_train_02816.jpg  corr=0.915  KHÁC nhãn (sad vs happy)
+      [nghi ngờ] raf_test_01083.jpg ~ raf_train_04469.jpg  corr=0.915  cùng nhãn
+      [nghi ngờ] raf_test_02241.jpg ~ raf_train_01448.jpg  corr=0.914  KHÁC nhãn (fear vs sad)
+      [nghi ngờ] raf_test_01331.jpg ~ raf_train_05450.jpg  corr=0.913  cùng nhãn
+      [nghi ngờ] raf_test_01965.jpg ~ raf_train_08028.jpg  corr=0.913  cùng nhãn
+      [nghi ngờ] raf_test_01439.jpg ~ raf_train_05871.jpg  corr=0.908  cùng nhãn
+      [nghi ngờ] raf_test_01077.jpg ~ raf_train_05330.jpg  corr=0.907  cùng nhãn
+      [nghi ngờ] raf_test_01247.jpg ~ raf_train_05312.jpg  corr=0.903  cùng nhãn
+      [nghi ngờ] raf_test_02508.jpg ~ raf_train_11586.jpg  corr=0.896  cùng nhãn
+      [nghi ngờ] raf_test_02487.jpg ~ raf_train_01343.jpg  corr=0.896  KHÁC nhãn (neutral vs sad)
+      [nghi ngờ] raf_test_01471.jpg ~ raf_train_04728.jpg  corr=0.895  cùng nhãn
+      [nghi ngờ] raf_test_02884.jpg ~ raf_train_10459.jpg  corr=0.884  cùng nhãn
+      [nghi ngờ] raf_test_01687.jpg ~ raf_train_06678.jpg  corr=0.880  cùng nhãn
+   ⚠️ CẢNH BÁO (không phải lỗi pipeline): split chính thức RAF-DB không tách theo danh tính, một số ảnh test là cùng người/cùng buổi chụp với ảnh train. Đã đo trên hsemotion_b0: bỏ các ảnh này khỏi test chỉ làm accuracy giảm ~0.1–0.2 điểm. Nên nêu trong báo cáo.
+
+[train vs val] train=17,099 val=3,002 nhóm chung=0
+
+❌ CÓ 1 VẤN ĐỀ CẦN XỬ LÝ (xem ở trên).
