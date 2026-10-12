@@ -44,7 +44,7 @@ Real-Time Multi-Face Explainable Facial Expression Recognition on In-The-Wild Fa
 │   ├── check_leakage.py    # Content-based train/val/test leakage check
 │   └── benchmark_fps.py    # Real-time pipeline FPS benchmark
 ├── output/                 # Checkpoints, confusion matrices, training histories
-├── docs/                   # Project proposal & methodology documentation
+├── docs/                   # Project methodology & presentation guide (PRESENTATION_GUIDE.md)
 ├── app.py                  # Real-Time Streamlit Web App
 └── pyproject.toml          # Project configuration & dependencies
 ```
