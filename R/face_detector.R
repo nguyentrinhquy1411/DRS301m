@@ -28,18 +28,14 @@ estimate_similarity_transform <- function(src_pts, out_size = 224) {
   src_centered <- sweep(src_pts, 2, src_mean, "-")
   dst_centered <- sweep(dst_pts, 2, dst_mean, "-")
   
-  # Tính scale và góc xoay dựa trên phân rã SVD (Kabsch / Procrustes algorithm)
+  # Tính scale và góc xoay dựa trên phân rã SVD (Umeyama / Procrustes algorithm)
+  # H = src^T dst = U S V^T  ->  R = V D U^T (ánh xạ cột: dst ≈ s R src + t)
   H <- t(src_centered) %*% dst_centered
   svd_res <- svd(H)
-  R <- svd_res$u %*% t(svd_res$v)
-  
-  if (det(R) < 0) {
-    svd_res$v[, 2] <- -svd_res$v[, 2]
-    R <- svd_res$u %*% t(svd_res$v)
-  }
-  
-  var_src <- sum(src_centered^2) / nrow(src_pts)
-  scale <- sum(svd_res$d) / (var_src * nrow(src_pts))
+  D <- diag(c(1, sign(det(svd_res$v %*% t(svd_res$u)))))
+  R <- svd_res$v %*% D %*% t(svd_res$u)
+
+  scale <- sum(svd_res$d * diag(D)) / sum(src_centered^2)
   
   sR <- scale * R
   translation <- dst_mean - (sR %*% src_mean)

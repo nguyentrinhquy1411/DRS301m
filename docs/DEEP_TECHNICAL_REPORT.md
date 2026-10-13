@@ -21,7 +21,7 @@
 ## 1. CƠ SỞ LÝ LUẬN & TÂM LÝ HỌC SINH HỌC THẦN KINH
 
 ### 1.1. Thuyết Biểu cảm Cốt lõi của Paul Ekman
-Nghiên cứu của Paul Ekman (1971, 1992) đã chứng minh trên thực nghiệm liên văn hóa rằng loài người sở hữu một tập hợp các trạng thái cảm xúc cơ bản mang tính phổ quát, độc lập với văn hóa, ngôn ngữ và nguồn gốc chủng tộc. Trong đề tài này, nhóm mô hình hóa **7 trạng thái cảm xúc rời rạc** chuẩn mực:
+Nghiên cứu của Paul Ekman (1971, 1992) đã chứng minh trên thực nghiệm liên văn hóa rằng loài người sở hữu **6 cảm xúc cơ bản** mang tính phổ quát (vui, buồn, giận, sợ, ghê tởm, ngạc nhiên). Theo chuẩn của RAF-DB, nhóm bổ sung lớp **neutral** và mô hình hóa **7 trạng thái cảm xúc rời rạc**:
 $$\mathcal{Y} = \{\text{Angry}, \text{Disgust}, \text{Fear}, \text{Happy}, \text{Neutral}, \text{Sad}, \text{Surprise}\}$$
 
 ### 1.2. Hệ thống Mã hóa Vận động Cơ mặt (Facial Action Coding System - FACS)
@@ -81,8 +81,8 @@ Khi một đối tượng đeo khẩu trang y tế:
 |            v                  v                           v                  |
 |      Train Set             Val Set                 3 Test Splits:            |
 |     (17,099 ảnh)         (3,002 ảnh)               • Unmasked (3,068)        |
-|     • 10,430 gốc         • 1,841 gốc               • Masked   (1,975)        |
-|     •  6,669 masked      • 1,161 masked            • Combined (5,043)        |
+|     • 10,429 gốc         • 1,842 gốc               • Masked   (1,975)        |
+|     •  6,670 masked      • 1,160 masked            • Combined (5,043)        |
 +-----------------------------------------------------------------------------+
 ```
 
@@ -98,11 +98,13 @@ $$\rho = \frac{\pi_{\max}}{\pi_{\min}} = \frac{4772}{281} \approx 16.98$$
 
 ### 2.2. Pipeline Sinh Khẩu trang Nhân tạo MaskTheFace (Synthetic Mask Augmentation)
 Để tạo cặp dữ liệu đối chứng mà không làm méo mó nhãn gốc:
-1. Dò 68 điểm mốc Dlib/OpenCV trên ảnh mặt $x_i$.
-2. Ước tính góc tư thế 3D khuôn mặt $\mathbf{R} \in \text{SO}(3)$ qua thuật toán PnP (Perspective-n-Point).
-3. Biến dạng lưới 3D của khẩu trang phẫu thuật (surgical mask template) áp sát vào sống mũi và viền hàm dưới.
-4. Pha trộn alpha (Alpha Blending) tạo ra ảnh mang khẩu trang $x_i^{\text{masked}}$ bảo toàn nhãn chân lý:
+1. Dò khuôn mặt và 68 điểm mốc bằng **dlib** trên ảnh mặt $x_i$.
+2. Từ các điểm mốc, xác định các điểm neo (sống mũi, hai bên má, cằm) và ước lượng **góc nghiêng 2D** của khuôn mặt.
+3. **Warp ảnh mẫu khẩu trang 2D** (kiểu `surgical`) khớp vào các điểm neo rồi dán lên ảnh (không dùng PnP hay lưới 3D).
+4. Ảnh mang khẩu trang $x_i^{\text{masked}}$ (tên `raf_xxx_NNNNN_surgical.jpg`) bảo toàn nhãn chân lý:
 $$y(x_i^{\text{masked}}) = y(x_i)$$
+
+**Lưu ý:** chỉ 7,830/12,271 ảnh train (63.8%) và 1,975/3,068 ảnh test (64.4%) có bản khẩu trang — dlib không dò được mặt trên một phần ảnh 100×100 (nhỏ, nghiêng, bị che), nên tập masked lệch về các khuôn mặt chính diện. Chỉ dùng 1 kiểu khẩu trang và cùng công cụ cho cả train lẫn test.
 
 ---
 
@@ -113,9 +115,9 @@ Trong dữ liệu thị giác khuôn mặt, mỗi ảnh $x_i$ gắn liền với
 $$\text{ID}(x_i) = \text{ID}(x_i^{\text{masked}})$$
 Nếu phân chia Train/Val bằng hàm ngẫu nhiên đồng đều (Uniform Random Split 85/15) trên tập gộp:
 $$\mathcal{D}_{\text{combined}} = \mathcal{D}_{\text{orig}} \cup \mathcal{D}_{\text{masked}}$$
-Xác suất để một ảnh ở tập Validation có bản sao sinh đôi ở tập Training là:
-$$P(\text{Leak}) = 1 - (1 - 0.85) = 0.85 \quad (85\%)$$
-Thực nghiệm kiểm toán của nhóm trên pipeline cũ đo được: **2,033 trên tổng số 2,848 ảnh val (71.38%)** bị rò rỉ bản sao sang tập train. Khi đó mạng nơ-ron ghi nhớ danh tính (memorize identity) thay vì học biểu cảm, đẩy F1 trên Val lên mức ảo **0.826**, trong khi F1 trên Test thật rớt xuống **0.718**.
+Với một ảnh val **có** bản sinh đôi, bản sinh đôi đó rơi vào train với xác suất 0.85 (độc lập với ảnh val):
+$$P(\text{Leak} \mid \text{có bản sinh đôi}) = 0.85$$
+Vì chỉ ~64% ảnh gốc có bản khẩu trang, tỷ lệ rò rỉ kỳ vọng trên toàn val thấp hơn 85% một chút. Kiểm toán của nhóm trên pipeline cũ (MobileNetV3) ghi nhận **2,033/2,848 ảnh val (71.38%)** có bản sinh đôi trong train; mô hình khi đó ghi nhớ danh tính thay vì học biểu cảm, cho Val F1 ảo **0.826** trong khi Test F1 chỉ **0.718**. *(Số liệu pipeline cũ — log/JSON gốc không còn lưu trong repo.)*
 
 ### 3.2. Giải thuật Phân chia Nhóm Bảo toàn Danh tính (Subject-Aware Group Split)
 Nhóm định nghĩa hàm băm nhóm nguồn dựa trên tiền tố tên tệp:
@@ -151,6 +153,7 @@ Toàn bộ danh sách phân chia được cố định vào file cấu hình `da
 |  Nếu d_H <= 6: Xác nhận tiếp bằng Pearson Correlation r >= 0.93             |
 +-----------------------------------------------------------------------------+
 ```
+*Ghi chú:* bước crop 42% nửa trên chỉ dùng khi so **ảnh khẩu trang ↔ ảnh gốc**. Khi so **ảnh gốc train ↔ ảnh gốc test**, script băm toàn ảnh rồi xác nhận bằng tương quan pixel $r \ge 0.93$ (vì mọi ảnh RAF-DB căn theo cùng template nên dHash một mình báo nhầm nhiều).
 
 **Toán học dHash 64-bit:**
 1. Chuyển ảnh xám $I$, lấy nửa trên $I_{\text{upper}} = I[0 : \lfloor 0.42 H \rfloor, :]$.
@@ -173,15 +176,15 @@ $$d_H(h_1, h_2) = \text{popcount64}(h_1 \oplus h_2)$$
 
 ### 4.1. OpenCV YuNet Face Detector
 YuNet là kiến trúc mạng nơ-ron tích chập siêu nhẹ (Single-stage anchor-free CNN) được thiết kế đặc thù cho bài toán phát hiện khuôn mặt thời gian thực trên thiết bị biên:
-* Trọng số: `face_detection_yunet_2023mar.onnx` (~200 KB).
+* Trọng số: `face_detection_yunet_2023mar.onnx` (~227 KB).
 * Trả về đồng thời: Bounding box $[x, y, w, h]$, độ tin cậy $s \in [0, 1]$, và tọa độ 5 điểm mốc đặc trưng:
 $$\mathbf{P}_{\text{src}} = \begin{bmatrix} x_{\text{le}} & y_{\text{le}} \\ x_{\text{re}} & y_{\text{re}} \\ x_{\text{nose}} & y_{\text{nose}} \\ x_{\text{ml}} & y_{\text{ml}} \\ x_{\text{mr}} & y_{\text{mr}} \end{bmatrix} \in \mathbb{R}^{5 \times 2}$$
 
 ### 4.2. Phép Biến đổi Tương đồng 2D (Similarity Transform)
 Để đưa khuôn mặt bất kỳ về cùng hệ quy chiếu với ảnh lúc huấn luyện, nhóm sử dụng phép biến đổi tương đồng (xoay góc $\theta$, co dãn tỷ lệ $s$, tịnh tiến $[t_x, t_y]^\top$):
 $$\mathbf{M} = \begin{bmatrix} s \cos\theta & -s \sin\theta & t_x \\ s \sin\theta & s \cos\theta & t_y \end{bmatrix} \in \mathbb{R}^{2 \times 3}$$
-Ma trận $\mathbf{M}$ là nghiệm tối ưu của bài toán bình phương tối thiểu có trọng số (LMeDS - Least Median of Squares) ánh xạ 5 điểm nguồn vào 5 điểm đích:
-$$\min_{\mathbf{M}} \sum_{i=1}^5 \left\| \mathbf{M} \begin{bmatrix} p_i^{\text{src}} \\ 1 \end{bmatrix} - p_i^{\text{dst}} \right\|_2^2$$
+Ma trận $\mathbf{M}$ được ước lượng bằng `cv2.estimateAffinePartial2D(..., method=cv2.LMEDS)` theo tiêu chí **LMedS (Least Median of Squares)** — tối thiểu **trung vị** (không phải tổng) của bình phương sai số, nên bền vững khi một vài landmark bị dò sai (ví dụ khoé miệng bị khẩu trang che):
+$$\min_{\mathbf{M}} \; \operatorname{median}_{i=1..5} \left\| \mathbf{M} \begin{bmatrix} p_i^{\text{src}} \\ 1 \end{bmatrix} - p_i^{\text{dst}} \right\|_2^2$$
 
 ### 4.3. Xác lập Template Tọa độ Chuẩn RAF-DB Aligned
 Nhóm đo đạc thực nghiệm bằng cách chạy YuNet trên 1,000 ảnh chuẩn của RAF-DB test ($100 \times 100$), thu được vector trung bình tọa độ chuẩn hóa $[0, 1]$ với độ lệch chuẩn cực nhỏ $\sigma \approx 0.03$:
@@ -220,13 +223,14 @@ Nhân với kích thước đầu vào $S = 224$, ta có ma trận đích $\math
 
 ### 5.1. Phân tích So sánh Kiến trúc Backbone
 
-| Tiêu chí | MobileNetV3-Large | ResNet-50 | Swin-Transformer (Swin-T) | **HSEmotion EfficientNet-B0 (Lựa chọn)** |
+| Tiêu chí | MobileNetV3-Large | ResNet-18 | Swin-T (tham khảo) | **HSEmotion EfficientNet-B0 (Lựa chọn)** |
 | :--- | :---: | :---: | :---: | :---: |
-| **Số tham số (Params)** | ~4.2M | ~25.6M | ~28.3M | **~4.0M** |
-| **FLOPs (Input 224x224)** | 0.22 GFLOPs | 4.12 GFLOPs | 4.50 GFLOPs | **0.39 GFLOPs** |
+| **Số tham số** | ~5.5M (~3.0M backbone) | ~11.7M | ~28.3M | **~4.0M (backbone)** |
+| **FLOPs (Input 224x224)** | 0.22 GFLOPs | 1.8 GFLOPs | 4.5 GFLOPs | **0.39 GFLOPs** |
 | **Pretrained Domain** | ImageNet-1K | ImageNet-1K | ImageNet-1K | **VGGFace2 $\to$ AffectNet (Facial Domain)** |
-| **FPS trên Apple M1** | ~48 FPS | ~18 FPS | ~12 FPS | **~55 FPS (Rất mượt)** |
-| **Khả năng bắt AU** | Trung bình | Khá | Tốt nhưng overfit | **Xuất sắc (Đã align với cơ mặt)** |
+| **Có trong code dự án** | ✔️ (`mobilenet_v3_large`) | ✔️ (`resnet18`) | ✘ | ✔️ (`hsemotion_b0`, mặc định) |
+
+*Số tham số/FLOPs là số chuẩn của kiến trúc (paper/timm), không phải đo trong dự án. Nhóm không huấn luyện ResNet-50 hay Swin-T; FPS chỉ được đo cho pipeline dùng B0 (xem §9.4: 55 FPS với 1 mặt, tắt Grad-CAM).*
 
 ### 5.2. Khối MBConv & Squeeze-and-Excitation (SE Block)
 EfficientNet-B0 sử dụng khối Mobile Inverted Bottleneck Convolution (MBConv):
@@ -257,14 +261,16 @@ Nhờ xuất phát từ trọng số AffectNet, các bộ lọc tích chập ở
 |        |                                                                    |
 |        v                                                                    |
 |  GIAI ĐOẠN 1: Huấn luyện Baseline trên RAF-DB Gốc (data-mode = original)    |
-|  • Epoch 1: Đóng băng backbone, Warmup Classifier Head (LR = 1e-3)          |
-|  • Epoch 2 - 25: Mở toàn mạng, Fine-tune vi sai (LR = 1e-4, Head LR = 1e-3) |
-|  • Loss: Logit-Adjusted Loss + Mixup/CutMix + EMA 0.998                     |
+|  • 1 epoch đầu: Đóng băng backbone, Warmup Classifier Head (LR = 1e-3)      |
+|  • 25 epoch tiếp: Mở toàn mạng, LR vi sai (backbone 1e-4, head 1e-3)        |
+|  • AdamW (wd 0.05), warmup tuyến tính 1 epoch + cosine, grad clip 5.0       |
+|  • Loss: Logit-Adjusted (tau=1) + label smoothing 0.1                       |
+|  • Mixup/CutMix (p=0.5) + EMA 0.998, early stopping patience 8              |
 |  • Output: output/best_model_rafdb.pth (Unmasked Test Acc = 89.15%)         |
 |        |                                                                    |
 |        v                                                                    |
 |  GIAI ĐOẠN 2: Huấn luyện Thích ứng Mask-Aware (data-mode = combined)        |
-|  • Khởi tạo trọng số từ best_model_rafdb.pth                                |
+|  • Khởi tạo trọng số từ best_model_rafdb.pth (không đóng băng lại)          |
 |  • Fine-tune 20 epochs trên 17,099 ảnh Combined (Gốc + Khẩu trang)          |
 |  • Bổ sung: LowerFaceOcclusion (p=0.3) ép mạng chuyển hướng học vùng mắt    |
 |  • Output: output/best_model_mask_aware.pth (Masked Test Acc = 79.29%)      |
@@ -283,11 +289,12 @@ $$\text{Margin}(y, c) \ge \tau \log \left(\frac{\pi_c}{\pi_y}\right)$$
 Các lớp thiểu số như `fear` ($\pi_{\text{fear}} = 0.023$) sẽ có biên bảo vệ lớn hơn rất nhiều so với lớp chiếm đa số như `happy` ($\pi_{\text{happy}} = 0.389$).
 
 ### 6.2. Kỹ thuật Tăng cường Dữ liệu Phối hợp (Compound Data Augmentation)
-1. **LowerFaceOcclusion:** Với xác suất $p=0.3$, cắt ngẫu nhiên hình chữ nhật che phủ từ vị trí $y \in [0.45 H, 0.60 H]$ đến hết đáy ảnh với màu đơn sắc ngẫu nhiên hoặc nhiễu Gaussian, ép mạng nơ-ron không được phụ thuộc vào miệng.
+1. **LowerFaceOcclusion** (`src/dataset.py`): Với xác suất $p=0.3$, phủ một **đa giác 5 đỉnh** mô phỏng khẩu trang: mép trên ở $y \in [0.50 H, 0.62 H]$, hơi võng (tối đa 0.08H) như dây đeo, lề hai bên ngẫu nhiên, kéo tới đáy ảnh. 75% tô một màu đặc (trắng, xanh y tế, xám, đen…), 25% tô nhiễu ngẫu nhiên đều (uniform). Ép mạng không phụ thuộc vào miệng và không chỉ học đúng kiểu khẩu trang của MaskTheFace.
 2. **Mixup & CutMix:**
    * *Mixup:* $\tilde{x} = \lambda x_i + (1-\lambda) x_j$ với $\lambda \sim \text{Beta}(0.2, 0.2)$.
    * *CutMix:* Cắt một vùng chữ nhật tỷ lệ $1 - \lambda$ từ ảnh $j$ dán đè vào ảnh $i$ với $\lambda \sim \text{Beta}(1.0, 1.0)$.
-3. **Random Erasing & Geometric Transforms:** Random affine xoay $\pm 10^\circ$, scale $0.8 - 1.0$, lật ngang ngẫu nhiên.
+   * Mỗi batch được trộn với xác suất 0.5; khi trộn, chọn Mixup hoặc CutMix 50/50. Nhãn mềm (đã label smoothing 0.1) được trộn theo $\lambda$.
+3. **Random Erasing & Geometric Transforms:** RandomResizedCrop (scale 0.8–1.0), xoay $\pm 10^\circ$, dịch ±4%, lật ngang, ColorJitter, Grayscale 10%, RandomErasing $p=0.25$.
 
 ### 6.3. Trung bình Trọng số Hàm mũ (Polyak-Ruppert Averaging / EMA)
 Để triệt tiêu dao động ngẫu nhiên của gradient ở các epoch cuối, trọng số suy luận được cập nhật liên tục qua EMA:
@@ -301,7 +308,7 @@ Trọng số $\theta_{\text{EMA}}$ đại diện cho tâm điểm của vùng c�
 ### 7.1. Nghịch lý Phân bố Tiên nghiệm (The Prior-Shift Paradox)
 * **Trong lúc train:** Logit-Adjusted Loss đã thành công trong việc ép mạng học đều các lớp, làm phẳng không gian biểu diễn như thể 7 lớp có xác suất xuất hiện bằng nhau $\pi_{\text{train}}^* = \frac{1}{7}$.
 * **Trên tập test thực tế:** Phân bố cảm xúc trong đời sống thực (và trên tập test RAF-DB) không hề đồng đều: đa số mọi người mang vẻ mặt bình thản (`neutral`) hoặc vui tươi (`happy`), rất hiếm khi sợ hãi (`fear`).
-* **Hậu quả:** Mạng đưa ra dự đoán với giả định các lớp bằng nhau, dẫn đến việc **đoán thừa lớp hiếm**: Recall của `fear` và `disgust` rất cao (>75%), nhưng Precision lại tụt xuống dưới 30% do có quá nhiều ảnh `neutral` bị gán nhầm thành `fear`.
+* **Hậu quả:** Mạng đưa ra dự đoán với giả định các lớp bằng nhau, dẫn đến việc **đoán thừa lớp hiếm**. Đo trên test mặt thường với logits thô (Mask-Aware): `fear` recall 0.74 nhưng precision chỉ **0.32**; `disgust` recall 0.78, precision **0.51**. Sau hiệu chỉnh ($t^*=0.85$): precision `fear` 0.74, `disgust` 0.69.
 
 ### 7.2. Phương trình Hiệu chỉnh Logit Bias
 Để cân bằng tối ưu giữa Precision và Recall mà không cần huấn luyện lại, ta đưa một trọng số điều tiết $t \in [-0.5, 1.5]$ vào pha suy luận:
@@ -314,21 +321,14 @@ $$\hat{y} = \arg\max_{c \in \{1, \dots, C\}} \left( f_c(x) + t \cdot \log \pi_c 
 Giải thuật quét tham số $t$ với bước nhảy $\Delta t = 0.05$ trên **tập Validation cố định (3,002 ảnh)**:
 $$t^* = \arg\max_{t \in [-0.5, 1.5]} \text{Macro-F1}\left( \left\{ \arg\max_c (f_c(x_i) + t \log \pi_c) \right\}_{i=1}^{N_{\text{val}}}, \{y_i\}_{i=1}^{N_{\text{val}}} \right)$$
 
-```
-Đồ thị quét t trên Validation Set (Mô hình Mask-Aware):
-Macro F1
-  0.78 |                                   * (t = +0.85, F1 = 0.7721, Acc = 84.64%)
-  0.76 |                             *   *   *
-  0.74 |                       *   *
-  0.72 |                 *   *
-  0.70 |           * (t = 0.00, F1 = 0.7109, Acc = 79.55%)
-  0.68 |       *
-  0.60 |   *
-       +---|---|---|---|---|---|---|---|---|---|---|---> Tham số t
-         -0.5 -0.25 0.0 +0.25 +0.5 +0.75 +0.85 +1.0 +1.25 +1.5
-```
+![Quét t trên validation](images/fig03_t_sweep_val.png)
 
-* Kết quả tìm kiếm tự động: $t^* = +0.85$ cho Mask-Aware và $t^* = +0.70$ cho mô hình RAF-DB.
+| Mô hình | $t^*$ | Val Macro-F1 ($t=0 \to t^*$) | Val Acc ($t=0 \to t^*$) |
+| :--- | :---: | :---: | :---: |
+| RAF-DB | +0.70 | 0.7522 → **0.8188** | 83.60% → **88.65%** |
+| Mask-Aware | +0.85 | 0.7109 → **0.7721** | 79.55% → **84.64%** |
+
+* Kiểm tra tổng quát hoá: nếu "nhìn trộm" test masked, $t$ tối ưu là 1.0 (F1 0.7129) — chỉ hơn $t^*=0.85$ chọn trên val (F1 0.7080) 0.005, nên phép hiệu chỉnh không overfit tập val.
 * Vector bias 7 chiều $\mathbf{b} = t^* \cdot \log \pi$ được ghi trực tiếp vào dictionary của file checkpoint `.pth`:
 ```python
 ckpt["logit_bias"] = (t * torch.log(prior.clamp_min(1e-8))).tolist()
@@ -368,12 +368,19 @@ MẶT THƯỜNG (UNMASKED)                       MẶT ĐEO KHẨU TRANG (MASKED
 +-----------------------+                   +-----------------------+
 ```
 
-* **Trên mặt không đeo khẩu trang:** Đối với cảm xúc `happy`, mạng nơ-ron tập trung gần 75% năng lượng gradient vào hai khóe miệng (AU12).
-* **Trên mặt có khẩu trang (Mô hình Baseline cũ):** Trọng số gradient bị phân tán vô định trên bề mặt lớp vải khẩu trang, dẫn đến việc mô hình rơi vào trạng thái bão hòa và dự đoán sai thành `neutral`.
-* **Trên mặt có khẩu trang (Mô hình Mask-Aware của nhóm):** Diễn ra hiện tượng **Attention Shift**:
-  1. Trọng số gradient tại vùng miệng bị dập tắt hoàn toàn về 0.
-  2. Năng lượng kích hoạt dịch chuyển 100% lên vùng hốc mắt, cơ vòng mi mắt ngoài (**AU6**) và vòm chân mày (**AU1, AU2, AU4**).
-  3. Mô hình nhận diện nụ cười thông qua độ cong của khóe mắt và nếp nhăn trán, khớp chính xác với lý thuyết Duchenne trong tâm lý học thần kinh.
+**Đo định lượng** (`scripts/study_analysis.py`): trên **1,975 cặp** ảnh test (ảnh gốc ↔ chính ảnh đó đeo khẩu trang), tính Grad-CAM cho nhãn thật và đo tỷ lệ năng lượng heatmap ở **nửa trên** ảnh ($y < 0.5H$):
+
+| Mô hình | Mặt thường | Đeo khẩu trang | Riêng `happy` (thường → khẩu trang) |
+| :--- | :---: | :---: | :---: |
+| HSEmotion-B0 chỉ RAF-DB | 41.6% | 54.5% | 35% → 50% |
+| HSEmotion-B0 Mask-Aware | 47.1% | **57.7%** | 42% → 58% |
+
+![Heatmap Grad-CAM trung bình](images/fig07_attention_shift_mean_cam.png)
+
+* **Trên mặt thường:** heatmap trung bình của cả hai mô hình có đỉnh lớn ở vùng miệng–cằm (AU12, AU25/26).
+* **Mô hình RAF-DB khi đeo khẩu trang:** chú ý dàn trải, hai đỉnh yếu ở hai mắt; mô hình "lùi về" `neutral` — **48% ảnh `happy` bị đoán là `neutral`** (`images/fig05_confusion_masked.png`).
+* **Mô hình Mask-Aware khi đeo khẩu trang:** heatmap tập trung thành **một đỉnh rõ giữa hai mắt / sống mũi** (vùng AU1, AU2, AU4, AU6), tỷ lệ năng lượng nửa trên cao nhất (57.7%); ngay cả trên mặt thường mô hình này cũng nhìn vùng trên nhiều hơn (47.1% vs 41.6%). Tỷ lệ tăng nhất quán ở cả 7 lớp (ví dụ angry 58% → 78%, fear 56% → 73%).
+* **Giới hạn:** vẫn còn ~42% năng lượng nằm trên vùng khẩu trang (Grad-CAM 7×7 rất thô; mô hình có thể dùng cả đường viền khẩu trang/khuôn mặt). Grad-CAM là giải thích xấp xỉ hậu nghiệm — sự phù hợp với lý thuyết Duchenne (AU6) là diễn giải định tính, không phải phép đo AU.
 
 ---
 
@@ -394,13 +401,13 @@ $$\mathbf{p}_{\text{smooth}}^{(t)} = (1 - \alpha) \cdot \mathbf{p}_{\text{smooth
 Nhãn hiển thị cuối cùng là $\hat{y} = \arg\max_c p_{\text{smooth}, c}^{(t)}$.
 
 ### 9.3. Tối ưu hóa Grad-CAM Temporal Cache
-* **Điểm nghẽn hiệu năng:** Phép lan truyền thuận (Forward pass) của EfficientNet-B0 chỉ mất **~12.7 ms** (~78 FPS). Tuy nhiên, một lượt lan truyền ngược (Backward pass) để tính gradient cho Grad-CAM mất tới **~90 ms** ($\implies$ kéo tụt FPS toàn hệ thống xuống **7.7 FPS**, không thể coi là real-time).
+* **Điểm nghẽn hiệu năng:** Bước dự đoán (forward) cho 1 khuôn mặt chỉ mất **~12.7 ms**. Một lần tính Grad-CAM (forward + backward) tốn khoảng **~80 ms** (suy ra từ chi phí trung bình 8.1 ms/frame khi tính mỗi 10 frame); nếu tính ở mọi frame, FPS sẽ rơi xuống dưới 10. *(Benchmark trong repo chỉ đo chế độ cache 10 frame; con số "mọi frame" là ước lượng.)*
 * **Giải pháp Kỹ nghệ:** Cơ mặt con người trong luồng video 30 FPS có tính quán tính thời gian rất cao; phân bố vùng chú ý không thể thay đổi đột ngột sau 33 ms.
-* **Cơ chế Cache:** Hệ thống **chỉ kích hoạt backward pass một lần sau mỗi $K=10$ frames** (~0.33 giây). Ở các frames trung gian, heatmap đã chuẩn hóa được tái sử dụng và chỉ cần biến đổi tọa độ hình học theo bbox hiện tại của khuôn mặt.
+* **Cơ chế Cache:** `webcam_app.py` chỉ tính Grad-CAM cho **khuôn mặt lớn nhất**, **một lần sau mỗi $K=10$ frames** (`GRADCAM_EVERY = 10`, ~0.33 giây); ở các frame trung gian, ảnh overlay Grad-CAM gần nhất được hiển thị lại.
 * **Kết quả:** Thời gian trung bình của bước CAM giảm từ 90 ms xuống **~8.1 ms**, đưa tốc độ hệ thống vọt từ 7.7 FPS lên **37.4 FPS** trên Apple M1!
 
 ### 9.4. Bảng Kết quả Benchmark FPS Toàn diện (`output/fps_benchmark_m1.json`)
-*Thiết bị đo: Apple M1 (16GB RAM, GPU MPS), Frame 1280x720, trung bình 100 frames thực nghiệm:*
+*Thiết bị đo: Apple M1 (GPU MPS), frame tổng hợp 1280x720 (ảnh mặt RAF-DB dán lên nền xám), tắt TTA, Grad-CAM mỗi 10 frame, lấy trung bình sau các frame khởi động. Cột "Dự đoán Batch" là số đo khi tắt Grad-CAM:*
 
 | Số lượng mặt trong khung hình | FPS (Tắt Grad-CAM) | FPS (Bật Grad-CAM Cache 10 frame) | Thời gian Detect + Align | Thời gian Dự đoán Batch | Thời gian Grad-CAM |
 | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -422,7 +429,9 @@ Nhãn hiển thị cuối cùng là $\hat{y} = \arg\max_c p_{\text{smooth}, c}^{
 | **MobileNetV3 (Pipeline cũ của nhóm)** | 79.86% / F1 0.718 | 73.27% / F1 0.628 | 77.28% / F1 0.684 |
 | **HSEmotion-B0 (Chỉ train RAF-DB)** | **89.15%** / F1 0.833 | 56.61% / F1 0.534 | 76.40% / F1 0.725 |
 | **HSEmotion-B0 Mask-Aware (Đề xuất ⭐)** | **88.43%** / F1 0.822 | **79.29%** / F1 0.708 | **84.85%** / F1 0.779 |
-| **Mức tăng trưởng vượt trội** | *(Chênh lệch không đáng kể <0.7%)* | **+22.68% Acc, +0.174 F1 🚀** | **+8.45% Acc, +0.054 F1 🚀** |
+| **Mức tăng trưởng vượt trội** | *(−0.72 điểm, không đáng kể)* | **+22.68 điểm % Acc, +0.174 F1 🚀** | **+8.45 điểm % Acc, +0.054 F1 🚀** |
+
+*Dòng MobileNetV3 là số liệu từ pipeline cũ (val bị rò rỉ, không TTA/prior-bias); file kết quả gốc không còn trong repo nên chỉ mang tính tham khảo, không so sánh cùng giao thức. Mức tăng tính so với mô hình HSEmotion-B0 chỉ train RAF-DB (cùng giao thức). Hai mô hình HSEmotion đã được chạy lại và khớp 100% với `output/*_tta_eval.json`.*
 
 ### 10.2. Báo cáo Chi tiết Từng Cảm xúc trên Tập Đeo Khẩu trang (1,975 ảnh)
 
@@ -437,23 +446,23 @@ Nhãn hiển thị cuối cùng là $\hat{y} = \arg\max_c p_{\text{smooth}, c}^{
 | **Disgust** | 48.42% | 45.10% | **0.4670** | 102 | Thách thức nhất do mất hoàn toàn cơ nhăn mũi và nhếch mép |
 
 ### 10.3. Nghiên cứu Bóc tách Đóng góp Kỹ thuật (Ablation Study)
-*Đo lường trên tập RAF-DB Unmasked Test Set:*
+*Chạy lại bằng `scripts/study_analysis.py` trên cùng checkpoint, tách riêng từng bước hậu xử lý (Accuracy % / Macro-F1):*
 
-```
-Độ chính xác Accuracy (%)
-  90% |                                              [89.15%] + Logit Adjustment & Prior-bias
-  88% |                                   [86.32%] + YuNet 5-point Alignment & TTA
-  86% |                        [84.22%] + HSEmotion Face Pretraining
-  84% |
-  82% |
-  80% |             [79.86%] Baseline MobileNetV3 cũ
-      +-------------------|-------------------|-------------------|------------------->
-                         (1)                 (2)                 (3)                 (4)
-```
+| Mô hình / tập test | Logits thô | + TTA lật ngang | + Prior-bias | + TTA + Prior-bias |
+| :--- | :---: | :---: | :---: | :---: |
+| RAF-DB / Unmasked | 84.22 / 0.764 | 83.93 / 0.761 | 89.05 / 0.831 | **89.15 / 0.833** |
+| RAF-DB / Masked | 49.37 / 0.481 | 49.97 / 0.486 | 56.20 / 0.526 | 56.61 / 0.534 |
+| Mask-Aware / Unmasked | 83.70 / 0.758 | 84.06 / 0.761 | 88.43 / 0.818 | 88.43 / 0.822 |
+| Mask-Aware / Masked | 73.27 / 0.652 | 73.22 / 0.647 | **79.75 / 0.719** | 79.29 / 0.708 |
+| Mask-Aware / Combined | 79.62 / 0.717 | 79.81 / 0.717 | 85.03 / 0.781 | 84.85 / 0.779 |
 
-1. **Từ Baseline MobileNetV3 lên HSEmotion-B0 (+4.36% Acc):** Khẳng định giá trị của trọng số tiền huấn luyện trong miền khuôn mặt (VGGFace2 $\to$ AffectNet).
-2. **Thêm YuNet Alignment 5 điểm & TTA (+2.10% Acc):** Loại bỏ độ lệch phân phối hình học không gian.
-3. **Thêm Logit Adjustment & Calibrate Prior-bias (+2.83% Acc, F1 tăng từ 0.785 lên 0.833):** Giải quyết triệt để vấn đề mất cân bằng dữ liệu, tối ưu hóa toàn diện Precision và Recall.
+![Ablation TTA và prior-bias](images/fig02_ablation_tta_bias.png)
+
+1. **Prior-bias là bước hậu xử lý đóng góp lớn nhất:** +4.4 đến +6.8 điểm accuracy và +0.06–0.07 Macro-F1.
+2. **TTA lật ngang gần như không đóng góp** (−0.3 đến +0.6 điểm) — có thể tắt trong ứng dụng real-time để nhanh gấp đôi bước dự đoán.
+3. **Dữ liệu khẩu trang + LowerFaceOcclusion** (so hai mô hình với cùng hậu xử lý): **+22.68 điểm** trên ảnh khẩu trang, đổi lại −0.72 điểm trên mặt thường.
+4. **Căn chỉnh YuNet không có trong bảng này:** ảnh test RAF-DB đã được căn chỉnh sẵn và `evaluate.py` không chạy detector, nên căn chỉnh chỉ ảnh hưởng tới ứng dụng webcam, không ảnh hưởng tới số liệu test.
+5. *Chưa có:* ablation tách riêng Logit-Adjusted loss (so với CE thường) và đóng góp của tiền huấn luyện HSEmotion so với MobileNetV3 cùng giao thức — đây là hướng bổ sung.
 
 ---
 
@@ -492,8 +501,12 @@ python src/calibrate.py --checkpoint output/best_model_mask_aware.pth
 # 5. Đánh giá kiểm thử chính thức có TTA
 python src/evaluate.py --checkpoint output/best_model_mask_aware.pth --tta
 
-# 6. Đo tốc độ FPS thời gian thực của toàn bộ pipeline
-python scripts/benchmark_fps.py --faces-dir data/raf_db/test
+# 6. Đo tốc độ FPS thời gian thực của toàn bộ pipeline (tái tạo output/fps_benchmark_m1.json)
+python scripts/benchmark_fps.py --faces-dir data/raf_db/test --no-tta --cam-every 10 --json output/fps_benchmark_m1.json
+
+# 6b. Tái lập ablation, quét t, Grad-CAM attention shift và các hình trong docs/images
+python scripts/study_analysis.py . docs/images
+python scripts/make_study_figures.py . docs/images
 
 # 7. Khởi chạy Giao diện Web Streamlit Dashboard
 streamlit run app.py
